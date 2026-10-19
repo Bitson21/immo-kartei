@@ -31,6 +31,14 @@ Erstes Tabellenblatt, erste Zeile sind die Spaltenüberschriften:
 
 Rot markierte Adressen wurden nicht gefunden. Dann die Schreibweise in der Excel prüfen und die Datei erneut laden. Bereits gefundene Adressen werden dabei nicht noch einmal gesucht.
 
+### Adresse von Hand eingeben
+
+Über der Adressliste auf **＋ Adresse hinzufügen** tippen, Straße und Hausnummer, PLZ und Ort eintragen (Unternehmen und Objektname sind freiwillig), **Hinzufügen**. Die App sucht die Adresse sofort auf der Karte. Steht die Adresse schon in der Liste, öffnet sich stattdessen ihre Karteikarte.
+
+Von Hand eingegebene Adressen bleiben erhalten, wenn später eine Excel-Datei geladen wird.
+
+Jede Adresse lässt sich in ihrer Karteikarte unten über **🗑 Adresse entfernen** löschen. Fotos bleiben im Google Drive. Eine Excel-Adresse kommt beim nächsten Laden der Excel wieder.
+
 Mit **Liste leeren** (unter der Adressliste) werden alle Adressen gelöscht, mit Sicherheitsabfrage. Bei Verbindung zu Google Drive auch in der Tabelle, Fotos bleiben erhalten. Wird dieselbe Excel danach erneut geladen, gehören die Fotos wieder zur richtigen Adresse.
 
 ### Tagesroute
