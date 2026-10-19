@@ -69,7 +69,15 @@ Eine Immobilie in der Liste, in der Tagesroute oder im Karten-Popup (**Karteikar
 - Vorschau oder ein Foto in der Reihe antippen: Foto im **Vollbild**. Mit **‹ ›**, Wischen oder den Pfeiltasten blättern. **In Google Drive öffnen** zeigt die Originaldatei (zum Herunterladen oder Teilen).
 - **✕ Schließen** oder Zurück-Wischen schließt das Vollbild, das zuletzt angesehene Foto wird auf der Karte markiert.
 
-Fotos gehen nur über die Kamera in der App, nicht aus der Galerie: Das iPhone entfernt bei Galeriefotos oft den Aufnahmeort. Für den Standort muss Safari die Ortung erlauben (Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites → „Beim Verwenden der App“).
+Fotos gehen nur über die Kamera in der App, nicht aus der Galerie: Das iPhone entfernt bei Galeriefotos oft den Aufnahmeort.
+
+**Standort:** Beim Öffnen der Karteikarte startet die Ortung, über dem Foto-Knopf steht der Stand: **📍 Standort aktiv · ±8 m** (alles gut), **⏳ Standort wird ermittelt …** oder eine Warnung mit Grund. Steht dort „Standort nicht erlaubt“:
+
+1. iPhone **Einstellungen** → **Datenschutz & Sicherheit** → **Ortungsdienste**.
+2. Ganz oben **Ortungsdienste** einschalten.
+3. Weiter unten **Safari-Websites** antippen → **Beim Verwenden der App** wählen und **Genauer Standort** einschalten.
+4. Die Immo-Kartei ganz schließen (von unten wischen, nach oben wegschieben) und neu öffnen.
+5. Eine Karteikarte öffnen. Fragt das iPhone nach dem Standort: **Erlauben**.
 
 ## Auf dem iPhone einrichten
 
