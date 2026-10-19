@@ -149,6 +149,41 @@
   .foto.wartet img { opacity: .55; }
   .popup-btn { margin-top: 6px; padding: 6px 10px; font-size: .9rem; }
 
+  /* Foto-Karte in der Karteikarte */
+  #kkKarte { height: 260px; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 14px; }
+  @media (min-width: 768px) { #kkKarte { height: 400px; } }
+  .nr.foto { background: #d97706; }
+  .nr.haus { background: #fff; font-size: 14px; }
+  .pp img {
+    display: block; width: 200px; height: 150px; object-fit: cover;
+    border-radius: 6px; background: #e9ecf2; cursor: zoom-in;
+  }
+  .pp div { margin-top: 4px; font-size: .85rem; }
+  .foto img { cursor: zoom-in; }
+
+  /* Vollbild-Ansicht eines Fotos */
+  #vollbild {
+    position: fixed; inset: 0; z-index: 4000; background: #000; color: #fff;
+    display: flex; flex-direction: column;
+  }
+  #vollbild[hidden] { display: none; }
+  .vb-kopf, .vb-fuss {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px; font-size: .9rem;
+  }
+  .vb-kopf { padding-top: max(10px, env(safe-area-inset-top)); }
+  .vb-kopf span { flex: 1; }
+  .vb-fuss { justify-content: center; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  .vb-fuss a { color: #9cc3ff; }
+  .vb-buehne { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; }
+  #vbBild { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .vb-pfeil {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 50%;
+    width: 46px; height: 46px; font-size: 1.8rem; line-height: 1; cursor: pointer;
+  }
+  .vb-pfeil.links { left: 10px; }
+  .vb-pfeil.rechts { right: 10px; }
+
   /* Schmale Handys: Kopfzeile in einer Zeile halten */
   @media (max-width: 420px) {
     h1 { font-size: 1.05rem; white-space: nowrap; }
@@ -223,6 +258,8 @@
       <a class="btn zweit" id="kkNavi" target="_blank" rel="noopener">🚗 Hin navigieren</a>
     </div>
 
+    <div id="kkKarte" hidden></div>
+
     <section class="panel">
       <h3>📷 Fotos</h3>
       <label class="btn" for="kamera" id="kkFotoKnopf">📷 Foto aufnehmen</label>
@@ -236,6 +273,21 @@
       <textarea id="kkNotizen" rows="7" placeholder="Notizen zu dieser Immobilie …"></textarea>
       <div id="kkNotizStand" class="gedimmt"></div>
     </section>
+  </div>
+</div>
+
+<div id="vollbild" hidden>
+  <div class="vb-kopf">
+    <span id="vbInfo"></span>
+    <button class="btn zweit" id="vbZu">✕ Schließen</button>
+  </div>
+  <div class="vb-buehne">
+    <img id="vbBild" alt="">
+    <button class="vb-pfeil links" id="vbZurueck" title="Voriges Foto">‹</button>
+    <button class="vb-pfeil rechts" id="vbWeiter" title="Nächstes Foto">›</button>
+  </div>
+  <div class="vb-fuss">
+    <a id="vbDrive" target="_blank" rel="noopener">In Google Drive öffnen</a>
   </div>
 </div>
 
@@ -837,6 +889,7 @@ function karteikarteOeffnen(id) {
 function karteikarteSchliessen() {
   notizSpeichern();
   offenesObjekt = null;
+  document.getElementById('vollbild').hidden = true;
   document.getElementById('karteikarte').hidden = true;
   document.body.style.overflow = '';
   allesZeichnen(false);
@@ -869,34 +922,182 @@ function karteikarteZeichnen() {
     : fertig.length ? `${fertig.length} Foto(s) in Google Drive gespeichert.`
     : 'Noch keine Fotos.';
 
-  const badge = f => f.lat !== '' && f.lat != null
-    ? `📍 ±${Math.round(+f.genauigkeit || 0)} m` : '⚠️ ohne Standort';
+  // Nummer wie auf der Foto-Karte
+  const badge = (f, i) => `${i + 1} · ` + (hatStandort(f) ? `📍 ±${Math.round(+f.genauigkeit || 0)} m` : '⚠️ ohne Standort');
   document.getElementById('kkFotos').innerHTML = [
-    ...fertig.map(f => `
+    ...fertig.map((f, i) => `
       <div class="foto" data-foto="${esc(f.id)}">
-        <img alt="" data-datei="${esc(f.dateiId)}">
-        <span class="badge">${badge(f)}</span>
+        <img alt="Foto ${i + 1}" data-datei="${esc(f.dateiId)}" data-index="${i}">
+        <span class="badge">${badge(f, i)}</span>
         <button class="weg" data-weg="${esc(f.id)}" title="Foto löschen">🗑</button>
       </div>`),
     ...wartend.map(u => `
       <div class="foto wartet"><img alt="" src="${u.vorschau}"><span class="badge">${u.fehler ? '⚠️' : '⏳'} lädt hoch</span></div>`),
   ].join('');
   fotoBilderLaden();
+  fotoKarteZeichnen(o, fertig);
+}
+
+const hatStandort = f => f.lat !== '' && f.lat != null && !isNaN(+f.lat);
+
+// Bild-URL eines Fotos; lädt es beim ersten Mal aus Google Drive (gleichzeitige Anfragen werden zusammengelegt)
+const fotoLadend = new Map();  // dateiId -> Promise
+function fotoUrl(dateiId) {
+  if (fotoCache.has(dateiId)) return Promise.resolve(fotoCache.get(dateiId));
+  if (!fotoLadend.has(dateiId)) {
+    fotoLadend.set(dateiId, (async () => {
+      try {
+        const { bild } = await api('fotoLaden', { dateiId });
+        const url = URL.createObjectURL(await (await fetch('data:image/jpeg;base64,' + bild)).blob());
+        fotoCache.set(dateiId, url);
+        return url;
+      } finally {
+        fotoLadend.delete(dateiId);
+      }
+    })());
+  }
+  return fotoLadend.get(dateiId);
 }
 
 // Vorschaubilder der hochgeladenen Fotos nacheinander aus Google Drive holen
 async function fotoBilderLaden() {
   for (const img of document.querySelectorAll('#kkFotos img[data-datei]')) {
-    const dateiId = img.dataset.datei;
-    if (!fotoCache.has(dateiId)) {
-      try {
-        const { bild } = await api('fotoLaden', { dateiId });
-        fotoCache.set(dateiId, URL.createObjectURL(await (await fetch('data:image/jpeg;base64,' + bild)).blob()));
-      } catch (e) { console.warn('Foto konnte nicht geladen werden', dateiId, e); continue; }
+    try {
+      const url = await fotoUrl(img.dataset.datei);
+      if (img.isConnected) img.src = url;
+    } catch (e) {
+      console.warn('Foto konnte nicht geladen werden', img.dataset.datei, e);
     }
-    if (img.isConnected) img.src = fotoCache.get(dateiId);
   }
 }
+
+// ---------- Foto-Karte in der Karteikarte ----------
+let kkKarte = null;          // Leaflet-Karte, wird beim ersten Öffnen angelegt
+let kkEbene = null;
+let kkFotoMarker = [];       // Index wie in fotosVon() -> Marker (oder null ohne Standort)
+let kkKarteStand = '';       // nur neu zoomen, wenn sich Objekt oder Fotos ändern
+
+function fotoKarteZeichnen(o, liste) {
+  const box = document.getElementById('kkKarte');
+  const mitStandort = liste.filter(hatStandort);
+  if (o.geoStatus !== 'ok' && !mitStandort.length) { box.hidden = true; return; }
+  box.hidden = false;
+
+  if (!kkKarte) {
+    kkKarte = L.map(box, { scrollWheelZoom: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(kkKarte);
+    kkEbene = L.layerGroup().addTo(kkKarte);
+  }
+  kkKarte.invalidateSize();  // Karte war versteckt, Größe neu messen
+  kkEbene.clearLayers();
+  const punkte = [];
+
+  if (o.geoStatus === 'ok') {
+    L.marker([o.lat, o.lon], { icon: nummerIcon('🏠', 'haus'), zIndexOffset: -100 })
+      .bindPopup(`<b>${esc(titel(o))}</b><br>${esc(adresseText(o))}`).addTo(kkEbene);
+    punkte.push([o.lat, o.lon]);
+  }
+
+  kkFotoMarker = liste.map((f, i) => {
+    if (!hatStandort(f)) return null;
+    const zeit = f.aufgenommenAm ? new Date(f.aufgenommenAm).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const m = L.marker([+f.lat, +f.lon], { icon: nummerIcon(i + 1, 'foto') })
+      .bindPopup(`<div class="pp"><img alt="Foto ${i + 1}" data-datei="${esc(f.dateiId)}" data-index="${i}">
+        <div>Foto ${i + 1}${zeit ? ' · ' + zeit : ''} · ±${Math.round(+f.genauigkeit || 0)} m</div></div>`, { minWidth: 200 })
+      .addTo(kkEbene);
+    // Bild erst laden, wenn das Popup aufgeht
+    m.on('popupopen', e => {
+      const img = e.popup.getElement().querySelector('img[data-datei]');
+      fotoUrl(img.dataset.datei).then(url => { img.src = url; }).catch(() => {});
+    });
+    punkte.push([+f.lat, +f.lon]);
+    return m;
+  });
+
+  const stand = o.id + ':' + liste.map(f => f.id).join(',');
+  if (stand !== kkKarteStand) {
+    kkKarteStand = stand;
+    if (punkte.length === 1) kkKarte.setView(punkte[0], 18);
+    else kkKarte.fitBounds(punkte, { padding: [30, 30], maxZoom: 19 });
+  }
+}
+
+// Klick auf das Bild im Popup öffnet das Vollbild (Capture-Phase, weil Leaflet Popup-Klicks stoppt)
+document.getElementById('kkKarte').addEventListener('click', e => {
+  const img = e.target.closest('img[data-index]');
+  if (img) vollbildOeffnen(+img.dataset.index);
+}, true);
+
+// ---------- Vollbild-Ansicht ----------
+let vbIndex = 0;
+
+function vollbildOeffnen(index) {
+  if (!fotosVon(offenesObjekt).length) return;
+  vbIndex = index;
+  if (!history.state?.vollbild) history.pushState({ karteikarte: true, vollbild: true }, '');
+  document.getElementById('vollbild').hidden = false;
+  vollbildZeigen();
+}
+
+async function vollbildZeigen() {
+  const liste = fotosVon(offenesObjekt);
+  if (!liste.length) return vollbildSchliessen();
+  vbIndex = (vbIndex + liste.length) % liste.length;  // am Ende wieder von vorn
+  const f = liste[vbIndex];
+  const zeit = f.aufgenommenAm ? new Date(f.aufgenommenAm).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  document.getElementById('vbInfo').textContent = [
+    `Foto ${vbIndex + 1} von ${liste.length}`, zeit,
+    hatStandort(f) ? `📍 ±${Math.round(+f.genauigkeit || 0)} m` : '⚠️ ohne Standort',
+  ].filter(Boolean).join(' · ');
+  document.getElementById('vbDrive').href = `https://drive.google.com/file/d/${encodeURIComponent(f.dateiId)}/view`;
+  const mehrere = liste.length > 1;
+  document.getElementById('vbZurueck').hidden = !mehrere;
+  document.getElementById('vbWeiter').hidden = !mehrere;
+  const bild = document.getElementById('vbBild');
+  bild.removeAttribute('src');
+  try {
+    const url = await fotoUrl(f.dateiId);
+    if (liste[vbIndex] === f) bild.src = url;  // inzwischen nicht weitergeblättert
+  } catch (e) {
+    document.getElementById('vbInfo').textContent += ' · ❌ Foto konnte nicht geladen werden';
+  }
+}
+
+function vollbildSchliessen() {
+  document.getElementById('vollbild').hidden = true;
+  // Das zuletzt angesehene Foto auf der Karte hervorheben
+  const m = kkFotoMarker[vbIndex];
+  if (m && kkKarte) {
+    kkKarte.setView(m.getLatLng(), Math.max(kkKarte.getZoom(), 17));
+    m.openPopup();
+  }
+}
+
+const blaettern = schritt => { vbIndex += schritt; vollbildZeigen(); };
+document.getElementById('vbZurueck').addEventListener('click', () => blaettern(-1));
+document.getElementById('vbWeiter').addEventListener('click', () => blaettern(1));
+document.getElementById('vbZu').addEventListener('click', () => {
+  if (history.state?.vollbild) history.back();  // „popstate“ schließt
+  else vollbildSchliessen();
+});
+document.addEventListener('keydown', e => {
+  if (document.getElementById('vollbild').hidden) return;
+  if (e.key === 'ArrowLeft') blaettern(-1);
+  if (e.key === 'ArrowRight') blaettern(1);
+  if (e.key === 'Escape') document.getElementById('vbZu').click();
+});
+// Wischen nach links/rechts blättert
+let wischStart = null;
+document.getElementById('vollbild').addEventListener('touchstart', e => { wischStart = e.touches[0].clientX; }, { passive: true });
+document.getElementById('vollbild').addEventListener('touchend', e => {
+  if (wischStart == null) return;
+  const dx = e.changedTouches[0].clientX - wischStart;
+  wischStart = null;
+  if (Math.abs(dx) > 50) blaettern(dx < 0 ? 1 : -1);
+});
 
 // Aktueller Standort { lat, lon, genauigkeit } oder null
 function standortHolen(timeout) {
@@ -1004,8 +1205,13 @@ document.getElementById('kkZurueck').addEventListener('click', () => {
   if (history.state?.karteikarte) history.back();  // löst „popstate“ aus und schließt
   else karteikarteSchliessen();
 });
+// Zurück (Knopf oder Wischen am iPhone): erst das Vollbild schließen, dann die Karteikarte
 window.addEventListener('popstate', () => {
-  if (!document.getElementById('karteikarte').hidden) karteikarteSchliessen();
+  if (!document.getElementById('vollbild').hidden) {
+    vollbildSchliessen();
+    if (history.state?.karteikarte) return;
+  }
+  if (!history.state?.karteikarte && !document.getElementById('karteikarte').hidden) karteikarteSchliessen();
 });
 
 document.getElementById('kkStatus').addEventListener('click', () => {
@@ -1041,6 +1247,8 @@ document.getElementById('kamera').addEventListener('change', e => {
 });
 
 document.getElementById('kkFotos').addEventListener('click', async e => {
+  const bild = e.target.closest('img[data-index]');
+  if (bild) { vollbildOeffnen(+bild.dataset.index); return; }
   const knopf = e.target.closest('[data-weg]');
   if (!knopf) return;
   if (!confirm('Dieses Foto löschen?\n\nEs kommt in den Papierkorb von Google Drive (30 Tage wiederherstellbar).')) return;
