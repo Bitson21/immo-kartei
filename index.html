@@ -301,6 +301,7 @@
 
     <section class="panel">
       <h3>📷 Fotos</h3>
+      <div id="kkStandort" class="gedimmt" style="margin-bottom:10px"></div>
       <label class="btn" for="kamera" id="kkFotoKnopf">📷 Foto aufnehmen</label>
       <input type="file" id="kamera" accept="image/*" capture="environment">
       <p id="kkFotoInfo" class="gedimmt" style="margin:10px 0 0"></p>
@@ -341,7 +342,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-19.2';
+const APP_VERSION = '2026-10-19.3';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -977,7 +978,6 @@ const fotoCache = new Map();   // dateiId -> Bild-URL (damit Fotos nur einmal ge
 // Fotos, die noch hochgeladen werden: { tmpId, objektId, blob, vorschau, standort (Promise), aufgenommenAm, fehler }
 const uploadSchlange = [];
 let uploadLaeuft = false;
-let standortBeimTippen = null;  // Promise, gestartet beim Tippen auf „Foto aufnehmen“
 let notizTimer = null;
 
 const objektNachId = id => objekte.find(o => o.id === id);
@@ -994,9 +994,11 @@ function karteikarteOeffnen(id) {
   document.getElementById('kkNotizStand').textContent = '';
   karteikarteZeichnen();
   document.getElementById('karteikarte').scrollTop = 0;
+  standortStarten();
 }
 
 function karteikarteSchliessen() {
+  standortStoppen();
   notizSpeichern();
   offenesObjekt = null;
   document.getElementById('vollbild').hidden = true;
@@ -1221,6 +1223,67 @@ function standortHolen(timeout) {
   });
 }
 
+// ---------- Standort, solange eine Karteikarte offen ist ----------
+// Die Ortung startet schon beim Öffnen der Karteikarte: Am iPhone geht die Erlaubnis-Frage sonst
+// unter, wenn sich gleichzeitig die Kamera öffnet.
+const STANDORT_MAX_ALTER_MS = 2 * 60 * 1000;  // ältere Positionen nicht mehr für Fotos verwenden
+let standortWatch = null;
+let letzterStandort = null;   // { lat, lon, genauigkeit, zeit }
+let standortFehler = null;    // 1 = nicht erlaubt, 2 = kein Signal, 3 = dauert zu lange, 'fehlt' = kein GPS
+
+function standortStarten() {
+  standortStoppen();
+  standortFehler = null;
+  if (!navigator.geolocation) { standortFehler = 'fehlt'; standortAnzeigen(); return; }
+  standortAnzeigen();
+  standortWatch = navigator.geolocation.watchPosition(
+    p => {
+      letzterStandort = { lat: p.coords.latitude, lon: p.coords.longitude, genauigkeit: Math.round(p.coords.accuracy), zeit: Date.now() };
+      standortFehler = null;
+      standortAnzeigen();
+    },
+    fehler => {
+      standortFehler = fehler.code;
+      standortAnzeigen();
+    },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 },
+  );
+}
+
+function standortStoppen() {
+  if (standortWatch != null) navigator.geolocation.clearWatch(standortWatch);
+  standortWatch = null;
+}
+
+const frischerStandort = () =>
+  letzterStandort && Date.now() - letzterStandort.zeit < STANDORT_MAX_ALTER_MS ? letzterStandort : null;
+
+function standortAnzeigen() {
+  const box = document.getElementById('kkStandort');
+  const pos = frischerStandort();
+  if (pos && standortFehler !== 1) {
+    box.textContent = `📍 Standort aktiv · ±${pos.genauigkeit} m`;
+    return;
+  }
+  const texte = {
+    1: `⚠️ <b>Standort nicht erlaubt.</b> Fotos werden ohne Standort gespeichert.<br>
+        Am iPhone: <b>Einstellungen → Datenschutz &amp; Sicherheit → Ortungsdienste</b> oben einschalten,
+        dann <b>Safari-Websites</b> → „Beim Verwenden der App“ wählen und „Genauer Standort“ einschalten.
+        Danach die Immo-Kartei ganz schließen und neu öffnen.`,
+    2: '⚠️ Kein Standort-Signal. Kurz ins Freie gehen hilft oft.',
+    3: '⚠️ Der Standort braucht ungewöhnlich lange.',
+    fehlt: '⚠️ Dieses Gerät kann den Standort nicht ermitteln.',
+  };
+  box.innerHTML = standortFehler == null
+    ? '⏳ Standort wird ermittelt …'
+    : texte[standortFehler] + (standortFehler === 'fehlt' ? ''
+      : ' <button class="btn zweit popup-btn" id="standortNochmal">Erneut versuchen</button>');
+}
+
+document.getElementById('kkStandort').addEventListener('click', e => {
+  if (e.target.closest('#standortNochmal')) standortStarten();
+});
+
 // Die genauere von zwei Positionen (kleinere Ungenauigkeit in Metern)
 const genauere = (a, b) => !a ? b : !b ? a : (b.genauigkeit < a.genauigkeit ? b : a);
 
@@ -1252,10 +1315,12 @@ const blobZuBase64 = blob => new Promise((ok, fehler) => {
 async function fotoAufgenommen(datei) {
   const objektId = offenesObjekt;
   const aufgenommenAm = new Date().toISOString();
-  // Standort: einmal beim Tippen auf den Knopf, einmal jetzt nach dem Auslösen – der genauere zählt
-  const vorher = standortBeimTippen || Promise.resolve(null);
-  standortBeimTippen = null;
-  const standort = Promise.all([vorher, standortHolen(10000)]).then(([a, b]) => genauere(a, b));
+  // Standort: der laufend ermittelte und ein frischer nach dem Auslösen – der genauere zählt.
+  // Ist die Ortung nicht erlaubt, gar nicht erst warten.
+  const laufend = frischerStandort();
+  const standort = standortFehler === 1 || standortFehler === 'fehlt'
+    ? Promise.resolve(null)
+    : standortHolen(10000).then(frisch => genauere(laufend, frisch));
   let blob;
   try {
     blob = await bildVerkleinern(datei);
@@ -1365,9 +1430,6 @@ document.getElementById('kkNotizen').addEventListener('input', () => {
 });
 document.getElementById('kkNotizen').addEventListener('blur', notizSpeichern);
 
-document.getElementById('kkFotoKnopf').addEventListener('click', () => {
-  standortBeimTippen = standortHolen(15000);
-});
 document.getElementById('kamera').addEventListener('change', e => {
   const datei = e.target.files[0];
   e.target.value = '';
