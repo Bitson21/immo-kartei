@@ -9,11 +9,13 @@ Web-App zum Besichtigen von Immobilien: Adressen aus Excel laden, Route planen, 
 - ✅ Schritt 3: Speichern in Google Drive
 - ✅ Schritt 4: Fotos mit Standort, Notizen, „bearbeitet“
 - ⏳ Schritt 5: Karteikarte mit Foto-Karte
-- ⏳ Schritt 6: Online stellen und am iPhone testen
+- ✅ Schritt 6: Online stellen (vor Schritt 5 gezogen, damit Kamera und GPS am iPhone testbar sind)
 
 ## Benutzen
 
-1. `index.html` im Browser öffnen.
+**Online:** https://bitson21.github.io/immo-kartei/
+
+1. Die Adresse oben im Browser öffnen (oder lokal `index.html`).
 2. Auf **Excel laden** tippen und die Adressliste wählen.
 3. Die App sucht alle Adressen auf der Karte (ca. 1 Sekunde pro Adresse).
 
@@ -54,6 +56,19 @@ Eine Immobilie in der Liste, in der Tagesroute oder im Karten-Popup (**Karteikar
 - **← Zurück** (oder am iPhone vom linken Rand wischen) schließt die Karteikarte.
 
 Fotos gehen nur über die Kamera in der App, nicht aus der Galerie: Das iPhone entfernt bei Galeriefotos oft den Aufnahmeort. Für den Standort muss Safari die Ortung erlauben (Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites → „Beim Verwenden der App“).
+
+## Auf dem iPhone einrichten
+
+1. In **Safari** die Adresse https://bitson21.github.io/immo-kartei/ öffnen.
+2. Unten auf das **Teilen**-Symbol (Quadrat mit Pfeil nach oben) tippen.
+3. Nach unten scrollen und **Zum Home-Bildschirm** tippen, dann **Hinzufügen**.
+4. Die App über das neue Icon **Immo-Kartei** auf dem Home-Bildschirm öffnen.
+5. Oben auf **☁️ Verbinden** tippen, Web-App-Adresse und Zugangscode eintragen, **Verbinden**.
+6. Bei der ersten Foto- oder Standort-Frage **Erlauben** tippen.
+
+Die App vom Home-Bildschirm hat einen eigenen Speicher, getrennt von Safari. Deshalb muss die Verbindung dort einmal neu eingetragen werden. Die Web-App-Adresse lässt sich am einfachsten am Mac kopieren und am iPhone einfügen (gleiche Apple-ID, „Handoff“ an).
+
+Für Etappen mit mehr als 3 Stopps muss die **Google-Maps-App** installiert sein.
 
 ## Google Drive verbinden (einmalig, ca. 10 Minuten)
 
