@@ -1,0 +1,5 @@
+# Echte Adresslisten nie ins (öffentliche) Repo hochladen
+*.xlsx
+*.xls
+*.csv
+.DS_Store

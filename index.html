@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Immo-Kartei</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --text: #1d2330;
+    --muted: #6b7385;
+    --line: #e2e5eb;
+    --accent: #1f6feb;
+    --offen: #1f6feb;
+    --erledigt: #2da44e;
+    --fehler: #cf222e;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+  }
+  header {
+    position: sticky; top: 0; z-index: 1000;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 16px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  h1 { margin: 0; font-size: 1.25rem; flex: 1; }
+  main { max-width: 900px; margin: 0 auto; padding: 12px 16px 40px; }
+  .btn {
+    display: inline-block;
+    background: var(--accent); color: #fff;
+    border: 0; border-radius: 8px;
+    padding: 10px 14px; font-size: 1rem; font-weight: 600;
+    cursor: pointer;
+  }
+  .btn.zweit { background: #e9ecf2; color: var(--text); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  #status { color: var(--muted); margin: 0 0 10px; min-height: 1.4em; }
+  #karte {
+    height: 55vh; min-height: 300px;
+    border-radius: 10px; border: 1px solid var(--line);
+    margin-bottom: 14px;
+  }
+  .leer {
+    background: var(--panel); border: 1px dashed var(--line); border-radius: 10px;
+    padding: 24px 16px; text-align: center; color: var(--muted);
+  }
+  .zaehler { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); margin-bottom: 8px; font-size: .95rem; }
+  ul.liste { list-style: none; margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  ul.liste li {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+    cursor: pointer;
+  }
+  ul.liste li:last-child { border-bottom: 0; }
+  ul.liste li:hover { background: #f7f8fa; }
+  .punkt { width: 14px; height: 14px; border-radius: 50%; flex: none; background: var(--offen); }
+  .punkt.bearbeitet { background: var(--erledigt); }
+  .punkt.fehler { background: var(--fehler); }
+  .adr { flex: 1; min-width: 0; }
+  .adr small { display: block; color: var(--muted); }
+  .hinweis { color: var(--fehler); font-size: .85rem; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏠 Immo-Kartei</h1>
+  <button class="btn zweit" id="leeren" hidden>Liste leeren</button>
+  <label class="btn" for="datei">Excel laden</label>
+  <input type="file" id="datei" accept=".xlsx,.xls,.csv">
+</header>
+
+<main>
+  <p id="status"></p>
+  <div id="karte"></div>
+  <div id="inhalt"></div>
+</main>
+
+<script>
+// ---------- Einstellungen ----------
+const SPEICHER_KEY = 'immoKartei.objekte';   // vorübergehender Speicher im Browser (bis Google Drive angebunden ist)
+const GEOCODER_PAUSE_MS = 1100;              // OpenStreetMap erlaubt höchstens 1 Anfrage pro Sekunde
+const START_ANSICHT = { lat: 51.16, lon: 10.45, zoom: 6 };  // Deutschland
+
+// Erwartete Spalten in der Excel-Datei (Groß-/Kleinschreibung egal)
+const SPALTEN = {
+  strasse: ['strasse_hausnummer', 'straße_hausnummer', 'strasse', 'straße'],
+  plz: ['plz', 'postleitzahl'],
+  ort: ['ort', 'stadt'],
+};
+// Diese Spalten dürfen fehlen
+const SPALTEN_OPTIONAL = {
+  unternehmen: ['unternehmen', 'firma'],
+  objektname: ['objektname', 'objekt'],
+};
+
+// ---------- Zustand ----------
+// Ein Objekt: { id, unternehmen, objektname, strasse, plz, ort, lat, lon,
+//               geoStatus: 'ok'|'fehlt'|'offen', status: 'offen'|'bearbeitet' }
+let objekte = laden();
+
+function laden() {
+  try { return JSON.parse(localStorage.getItem(SPEICHER_KEY)) || []; }
+  catch { return []; }
+}
+function speichern() {
+  try { localStorage.setItem(SPEICHER_KEY, JSON.stringify(objekte)); } catch {}
+}
+
+const schluessel = o => `${o.strasse}|${o.plz}|${o.ort}`.toLowerCase();
+const adresseText = o => `${o.strasse}, ${o.plz} ${o.ort}`;
+// Überschrift und Unterzeilen für Liste und Karte (ohne Objektname wird die Straße zur Überschrift)
+const titel = o => o.objektname || o.strasse;
+const unterzeilen = o => [
+  o.unternehmen,
+  o.objektname ? adresseText(o) : `${o.plz} ${o.ort}`,
+].filter(Boolean);
+
+// ---------- Karte ----------
+const karte = L.map('karte').setView([START_ANSICHT.lat, START_ANSICHT.lon], START_ANSICHT.zoom);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(karte);
+const markerEbene = L.layerGroup().addTo(karte);
+const marker = {};  // id -> Leaflet-Marker
+
+function farbe(o) {
+  return o.status === 'bearbeitet' ? '#2da44e' : '#1f6feb';
+}
+
+function karteZeichnen(zoomen) {
+  markerEbene.clearLayers();
+  const punkte = [];
+  for (const o of objekte) {
+    if (o.geoStatus !== 'ok') continue;
+    const m = L.circleMarker([o.lat, o.lon], {
+      radius: 8, color: '#fff', weight: 2, fillColor: farbe(o), fillOpacity: 1,
+    }).bindPopup(`<b>${esc(titel(o))}</b><br>${unterzeilen(o).map(esc).join('<br>')}`);
+    m.addTo(markerEbene);
+    marker[o.id] = m;
+    punkte.push([o.lat, o.lon]);
+  }
+  if (zoomen && punkte.length) karte.fitBounds(punkte, { padding: [30, 30], maxZoom: 15 });
+}
+
+// ---------- Liste ----------
+function listeZeichnen() {
+  const inhalt = document.getElementById('inhalt');
+  if (!objekte.length) {
+    inhalt.innerHTML = `<div class="leer">Noch keine Adressen.<br>Tippe oben auf <b>Excel laden</b>.<br><br>
+      Die Datei braucht die Spalten <b>Strasse_hausnummer</b>, <b>PLZ</b> und <b>Ort</b>.</div>`;
+    return;
+  }
+  const anzahl = objekte.length;
+  const erledigt = objekte.filter(o => o.status === 'bearbeitet').length;
+  const fehlt = objekte.filter(o => o.geoStatus === 'fehlt').length;
+
+  // Nicht gefundene Adressen zuerst, damit sie auffallen
+  const sortiert = [...objekte].sort((a, b) => (b.geoStatus === 'fehlt') - (a.geoStatus === 'fehlt'));
+
+  inhalt.innerHTML = `
+    <div class="zaehler">
+      <span>${anzahl} Adressen</span>
+      <span>✅ ${erledigt} bearbeitet</span>
+      <span>⏳ ${anzahl - erledigt} offen</span>
+      ${fehlt ? `<span style="color:var(--fehler)">⚠️ ${fehlt} nicht gefunden</span>` : ''}
+    </div>
+    <ul class="liste">
+      ${sortiert.map(o => `
+        <li data-id="${o.id}">
+          <span class="punkt ${o.geoStatus === 'fehlt' ? 'fehler' : o.status}"></span>
+          <span class="adr"><b>${esc(titel(o))}</b>${unterzeilen(o).map(z => `<small>${esc(z)}</small>`).join('')}
+            ${o.geoStatus === 'fehlt' ? '<span class="hinweis">Adresse auf der Karte nicht gefunden. Bitte Schreibweise in der Excel prüfen.</span>' : ''}
+          </span>
+        </li>`).join('')}
+    </ul>`;
+
+  inhalt.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
+    const m = marker[li.dataset.id];
+    if (!m) return;
+    karte.setView(m.getLatLng(), 17);
+    m.openPopup();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }));
+}
+
+function allesZeichnen(zoomen) {
+  karteZeichnen(zoomen);
+  listeZeichnen();
+  document.getElementById('leeren').hidden = !objekte.length;
+}
+
+function status(text) {
+  document.getElementById('status').textContent = text;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---------- Excel-Import ----------
+function zeilenAusExcel(arrayBuffer) {
+  const mappe = XLSX.read(arrayBuffer, { type: 'array' });
+  const blatt = mappe.Sheets[mappe.SheetNames[0]];
+  const zeilen = XLSX.utils.sheet_to_json(blatt, { defval: '' });
+  if (!zeilen.length) throw new Error('Die Excel-Datei ist leer.');
+
+  // Spaltennamen der Datei den erwarteten Feldern zuordnen
+  const kopf = Object.keys(zeilen[0]);
+  const finde = namen => kopf.find(k => namen.includes(k.trim().toLowerCase()));
+  const sp = { strasse: finde(SPALTEN.strasse), plz: finde(SPALTEN.plz), ort: finde(SPALTEN.ort) };
+  const fehlend = Object.entries(sp).filter(([, v]) => !v).map(([k]) => k);
+  if (fehlend.length) {
+    throw new Error(`Spalte(n) nicht gefunden: ${fehlend.join(', ')}. Gefunden wurden: ${kopf.join(', ')}`);
+  }
+  const spOpt = { unternehmen: finde(SPALTEN_OPTIONAL.unternehmen), objektname: finde(SPALTEN_OPTIONAL.objektname) };
+  const wert = (z, spalte) => spalte ? String(z[spalte]).trim() : '';
+
+  return zeilen
+    .map(z => ({
+      unternehmen: wert(z, spOpt.unternehmen),
+      objektname: wert(z, spOpt.objektname),
+      strasse: String(z[sp.strasse]).trim(),
+      // Excel macht aus „01234“ gern die Zahl 1234, deshalb wieder auf 5 Stellen auffüllen
+      plz: String(z[sp.plz]).trim().replace(/^(\d{1,4})$/, p => p.padStart(5, '0')),
+      ort: String(z[sp.ort]).trim(),
+    }))
+    .filter(z => z.strasse || z.plz || z.ort);
+}
+
+async function importieren(arrayBuffer) {
+  let neu;
+  try {
+    neu = zeilenAusExcel(arrayBuffer);
+  } catch (e) {
+    status('❌ ' + e.message);
+    return;
+  }
+
+  // Schon bekannte Adressen behalten ihre Daten (Koordinaten, Status),
+  // Unternehmen und Objektname kommen immer frisch aus der Excel
+  const alt = new Map(objekte.map(o => [schluessel(o), o]));
+  objekte = neu.map(z => alt.has(schluessel(z)) ? { ...alt.get(schluessel(z)), unternehmen: z.unternehmen, objektname: z.objektname } : {
+    id: 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    ...z, lat: null, lon: null, geoStatus: 'offen', status: 'offen',
+  });
+  speichern();
+  allesZeichnen(false);
+  await koordinatenSuchen();
+}
+
+// ---------- Koordinaten suchen (OpenStreetMap / Nominatim) ----------
+async function geocode(o) {
+  const params = new URLSearchParams({
+    street: o.strasse, postalcode: o.plz, city: o.ort,
+    countrycodes: 'de', format: 'json', limit: '1',
+  });
+  const antwort = await fetch('https://nominatim.openstreetmap.org/search?' + params, {
+    headers: { 'Accept-Language': 'de' },
+  });
+  if (!antwort.ok) throw new Error('HTTP ' + antwort.status);
+  const treffer = await antwort.json();
+  return treffer[0] ? { lat: +treffer[0].lat, lon: +treffer[0].lon } : null;
+}
+
+const pause = ms => new Promise(r => setTimeout(r, ms));
+
+// Jeder Suchlauf bekommt eine Nummer. „Liste leeren“ erhöht sie, dann bricht ein laufender Suchlauf ab.
+let suchLauf = 0;
+
+function excelKnopfSperren(gesperrt) {
+  const knopf = document.querySelector('label[for=datei]');
+  knopf.style.pointerEvents = gesperrt ? 'none' : '';
+  knopf.style.opacity = gesperrt ? .5 : '';
+}
+
+async function koordinatenSuchen() {
+  const lauf = ++suchLauf;
+  const offen = objekte.filter(o => o.geoStatus === 'offen');
+  excelKnopfSperren(true);
+
+  for (let i = 0; i < offen.length; i++) {
+    if (lauf !== suchLauf) return;  // abgebrochen
+    const o = offen[i];
+    status(`🔎 Suche Adressen auf der Karte … ${i + 1} von ${offen.length}`);
+    try {
+      const pos = await geocode(o);
+      if (pos) Object.assign(o, pos, { geoStatus: 'ok' });
+      else o.geoStatus = 'fehlt';
+    } catch (e) {
+      // Netzwerkfehler: bleibt „offen“ und wird beim nächsten Öffnen erneut versucht
+      console.warn('Geocoding fehlgeschlagen', adresseText(o), e);
+    }
+    if (lauf !== suchLauf) return;  // während der Anfrage abgebrochen
+    speichern();
+    allesZeichnen(false);
+    if (i < offen.length - 1) await pause(GEOCODER_PAUSE_MS);
+  }
+
+  excelKnopfSperren(false);
+  const fehlt = objekte.filter(o => o.geoStatus === 'fehlt').length;
+  const nochOffen = objekte.filter(o => o.geoStatus === 'offen').length;
+  status(
+    nochOffen ? `⚠️ ${nochOffen} Adressen konnten wegen eines Verbindungsproblems nicht gesucht werden. Seite neu laden, um es erneut zu versuchen.`
+    : fehlt ? `Fertig. ${fehlt} Adresse(n) wurden nicht gefunden (rot markiert).`
+    : objekte.length ? `Fertig. Alle ${objekte.length} Adressen sind auf der Karte.` : ''
+  );
+  allesZeichnen(true);
+}
+
+document.getElementById('datei').addEventListener('change', async e => {
+  const datei = e.target.files[0];
+  e.target.value = '';  // gleiche Datei erneut wählbar machen
+  if (!datei) return;
+  status('📄 Lese ' + datei.name + ' …');
+  await importieren(await datei.arrayBuffer());
+});
+
+document.getElementById('leeren').addEventListener('click', () => {
+  if (!confirm(`Wirklich alle ${objekte.length} Adressen aus der Liste löschen?`)) return;
+  suchLauf++;  // laufende Adresssuche abbrechen
+  excelKnopfSperren(false);
+  objekte = [];
+  speichern();
+  allesZeichnen(false);
+  karte.setView([START_ANSICHT.lat, START_ANSICHT.lon], START_ANSICHT.zoom);
+  status('Liste geleert.');
+});
+
+// ---------- Start ----------
+allesZeichnen(true);
+if (objekte.some(o => o.geoStatus === 'offen')) koordinatenSuchen();
+</script>
+</body>
+</html>
