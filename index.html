@@ -184,6 +184,18 @@
   .vb-pfeil.links { left: 10px; }
   .vb-pfeil.rechts { right: 10px; }
 
+  /* Hinweis auf neue Version */
+  #updateHinweis {
+    position: fixed; left: 12px; right: 12px; z-index: 5000;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    max-width: 520px; margin: 0 auto;
+    background: #1d2330; color: #fff; border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    padding: 12px 14px; display: flex; align-items: center; gap: 12px;
+  }
+  #updateHinweis[hidden] { display: none; }
+  #updateHinweis span { flex: 1; }
+
   /* Schmale Handys: Kopfzeile in einer Zeile halten */
   @media (max-width: 420px) {
     h1 { font-size: 1.05rem; white-space: nowrap; }
@@ -276,6 +288,11 @@
   </div>
 </div>
 
+<div id="updateHinweis" hidden>
+  <span>🔄 Neue Version verfügbar</span>
+  <button class="btn" id="updateBtn">Aktualisieren</button>
+</div>
+
 <div id="vollbild" hidden>
   <div class="vb-kopf">
     <span id="vbInfo"></span>
@@ -293,6 +310,9 @@
 
 <script>
 // ---------- Einstellungen ----------
+// Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
+// sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
+const APP_VERSION = '2026-10-19.1';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -1456,6 +1476,39 @@ document.getElementById('vTrennen').addEventListener('click', () => {
   status('Verbindung zu Google Drive getrennt.');
 });
 
+// ---------- Neue Version erkennen ----------
+// iPhone-Home-Bildschirm-Apps laden die Seite oft lange aus dem Zwischenspeicher.
+// Darum fragt die App selbst nach (am Zwischenspeicher vorbei) und bietet ein Update an.
+let neueVersion = null;
+
+async function aufUpdatePruefen() {
+  try {
+    const antwort = await fetch('index.html?pruefen=' + Date.now(), { cache: 'no-store' });
+    if (!antwort.ok) return;
+    const gefunden = (await antwort.text()).match(/const APP_VERSION = '([^']+)'/)?.[1];
+    if (gefunden && gefunden !== APP_VERSION) {
+      neueVersion = gefunden;
+      document.getElementById('updateHinweis').hidden = false;
+    }
+  } catch { /* offline: beim nächsten Mal */ }
+}
+
+document.getElementById('updateBtn').addEventListener('click', () => {
+  if (uploadSchlange.length) {
+    alert('Bitte warten, bis alle Fotos hochgeladen sind. Danach erneut tippen.');
+    return;
+  }
+  notizSpeichern();
+  // Neue Adresse (?v=…) umgeht den Zwischenspeicher sicher
+  location.replace(location.pathname + '?v=' + encodeURIComponent(neueVersion || Date.now()));
+});
+
+// Beim Zurückkehren in die App (iPhone pausiert sie nur) und alle 30 Minuten prüfen
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') aufUpdatePruefen();
+});
+setInterval(aufUpdatePruefen, 30 * 60 * 1000);
+
 // ---------- Start ----------
 if (route) {
   document.getElementById('startText').value = route.start.text === 'Mein Standort' ? '' : route.start.text;
@@ -1467,6 +1520,7 @@ else {
   cloudStatus('aus');
   if (objekte.some(o => o.geoStatus === 'offen')) koordinatenSuchen();
 }
+aufUpdatePruefen();
 </script>
 </body>
 </html>
