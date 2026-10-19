@@ -79,7 +79,7 @@
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
   .panel h2 { margin: 0 0 10px; font-size: 1.1rem; }
   .feld { display: block; margin-bottom: 10px; font-size: .9rem; color: var(--muted); }
-  .feld input[type=text], .feld input[type=number] {
+  .feld input[type=text], .feld input[type=number], .feld input[type=password] {
     display: block; width: 100%; margin-top: 4px;
     font-size: 1rem; padding: 9px 10px;
     border: 1px solid var(--line); border-radius: 8px; color: var(--text);
@@ -116,13 +116,30 @@
 <body>
 <header>
   <h1>🏠 Immo-Kartei</h1>
-  <button class="btn zweit" id="leeren" hidden>Liste leeren</button>
+  <button class="btn zweit" id="cloudBtn" title="Google Drive">☁️ Verbinden</button>
   <label class="btn" for="datei">Excel laden</label>
   <input type="file" id="datei" accept=".xlsx,.xls,.csv">
 </header>
 
 <main>
   <p id="status"></p>
+
+  <section class="panel" id="verbindungPanel" hidden>
+    <h2>☁️ Google Drive</h2>
+    <p id="verbindungInfo" style="margin:0 0 10px;color:var(--muted)"></p>
+    <label class="feld">Web-App-Adresse
+      <input type="text" id="vUrl" placeholder="https://script.google.com/macros/s/…/exec"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    </label>
+    <label class="feld">Zugangscode
+      <input type="password" id="vCode" autocomplete="off">
+    </label>
+    <div class="knoepfe">
+      <button class="btn" id="vVerbinden">Verbinden</button>
+      <button class="btn zweit" id="vTrennen" hidden>Trennen</button>
+      <button class="btn zweit" id="vSchliessen">Schließen</button>
+    </div>
+  </section>
 
   <section class="panel" id="routePanel" hidden>
     <h2>🚗 Tagesroute</h2>
@@ -151,7 +168,9 @@
 
 <script>
 // ---------- Einstellungen ----------
-const SPEICHER_KEY = 'immoKartei.objekte';   // vorübergehender Speicher im Browser (bis Google Drive angebunden ist)
+const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
+const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
+const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
 const GEOCODER_PAUSE_MS = 1100;              // OpenStreetMap erlaubt höchstens 1 Anfrage pro Sekunde
 const START_ANSICHT = { lat: 51.16, lon: 10.45, zoom: 6 };  // Deutschland
 const ROUTE_KEY = 'immoKartei.route';
@@ -175,15 +194,49 @@ const SPALTEN_OPTIONAL = {
 
 // ---------- Zustand ----------
 // Ein Objekt: { id, unternehmen, objektname, strasse, plz, ort, lat, lon,
-//               geoStatus: 'ok'|'fehlt'|'offen', status: 'offen'|'bearbeitet' }
-let objekte = laden();
+//               geoStatus: 'ok'|'fehlt'|'offen', status: 'offen'|'bearbeitet', notizen }
+const lesen = (key, ersatz) => {
+  try { return JSON.parse(localStorage.getItem(key)) ?? ersatz; } catch { return ersatz; }
+};
+const merken = (key, wert) => {
+  try { wert == null ? localStorage.removeItem(key) : localStorage.setItem(key, JSON.stringify(wert)); } catch {}
+};
 
-function laden() {
-  try { return JSON.parse(localStorage.getItem(SPEICHER_KEY)) || []; }
-  catch { return []; }
+let objekte = lesen(SPEICHER_KEY, []);
+let fotos = [];  // Foto-Einträge aus der Google-Tabelle (ab Schritt 4 genutzt)
+let verbindung = lesen(VERBINDUNG_KEY, null);
+const ausstehend = (a => ({ speichern: new Set(a.speichern), loeschen: new Set(a.loeschen) }))(
+  lesen(AUSSTEHEND_KEY, { speichern: [], loeschen: [] }));
+
+// Speichert lokal und merkt geänderte Objekte zum Hochladen vor (ids weglassen = alle)
+function speichern(ids) {
+  merken(SPEICHER_KEY, objekte);
+  if (!verbindung) return;
+  for (const id of ids || objekte.map(o => o.id)) {
+    ausstehend.speichern.add(id);
+    ausstehend.loeschen.delete(id);
+  }
+  ausstehendMerken();
+  hochladenPlanen();
 }
-function speichern() {
-  try { localStorage.setItem(SPEICHER_KEY, JSON.stringify(objekte)); } catch {}
+function loeschenVormerken(ids) {
+  if (!verbindung) return;
+  for (const id of ids) {
+    ausstehend.loeschen.add(id);
+    ausstehend.speichern.delete(id);
+  }
+  ausstehendMerken();
+  hochladenPlanen();
+}
+function ausstehendMerken() {
+  merken(AUSSTEHEND_KEY, { speichern: [...ausstehend.speichern], loeschen: [...ausstehend.loeschen] });
+}
+
+// Feste ID aus der Adresse: Nach „Liste leeren“ und erneutem Import passen Fotos wieder zum Objekt
+function idAusAdresse(text) {
+  let h = 0x811c9dc5;
+  for (const zeichen of text) { h ^= zeichen.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return 'o' + h.toString(36);
 }
 
 // Tagesroute: { start: { text, lat, lon }, ids: [Objekt-IDs in Reihenfolge], rund: bool, km }
@@ -286,8 +339,10 @@ function listeZeichnen() {
             ${o.geoStatus === 'fehlt' ? '<span class="hinweis">Adresse auf der Karte nicht gefunden. Bitte Schreibweise in der Excel prüfen.</span>' : ''}
           </span>
         </li>`).join('')}
-    </ul>`;
+    </ul>
+    <div style="margin-top:14px"><button class="btn zweit" id="leeren">Liste leeren</button></div>`;
 
+  document.getElementById('leeren').addEventListener('click', listeLeeren);
   inhalt.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
     const m = marker[li.dataset.id];
     if (!m) return;
@@ -301,7 +356,6 @@ function allesZeichnen(zoomen) {
   karteZeichnen(zoomen);
   routeZeichnen();
   listeZeichnen();
-  document.getElementById('leeren').hidden = !objekte.length;
   document.getElementById('routePanel').hidden = !objekte.some(o => o.geoStatus === 'ok');
 }
 
@@ -355,10 +409,19 @@ async function importieren(arrayBuffer) {
   // Schon bekannte Adressen behalten ihre Daten (Koordinaten, Status),
   // Unternehmen und Objektname kommen immer frisch aus der Excel
   const alt = new Map(objekte.map(o => [schluessel(o), o]));
-  objekte = neu.map(z => alt.has(schluessel(z)) ? { ...alt.get(schluessel(z)), unternehmen: z.unternehmen, objektname: z.objektname } : {
-    id: 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-    ...z, lat: null, lon: null, geoStatus: 'offen', status: 'offen',
+  const vergeben = new Set();
+  objekte = neu.map(z => {
+    const bekannt = alt.get(schluessel(z));
+    let id = bekannt?.id || idAusAdresse(schluessel(z));
+    while (vergeben.has(id)) id += 'x';  // dieselbe Adresse doppelt in der Excel
+    vergeben.add(id);
+    return bekannt
+      ? { ...bekannt, id, unternehmen: z.unternehmen, objektname: z.objektname }
+      : { id, ...z, lat: null, lon: null, geoStatus: 'offen', status: 'offen', notizen: '' };
   });
+  // Adressen, die nicht mehr in der Excel stehen, auch in der Google-Tabelle löschen
+  const bleibt = new Set(objekte.map(o => o.id));
+  loeschenVormerken([...alt.values()].map(o => o.id).filter(id => !bleibt.has(id)));
   speichern();
   allesZeichnen(false);
   await koordinatenSuchen();
@@ -407,7 +470,7 @@ async function koordinatenSuchen() {
       console.warn('Geocoding fehlgeschlagen', adresseText(o), e);
     }
     if (lauf !== suchLauf) return;  // während der Anfrage abgebrochen
-    speichern();
+    speichern([o.id]);
     allesZeichnen(false);
     if (i < offen.length - 1) await pause(GEOCODER_PAUSE_MS);
   }
@@ -431,17 +494,21 @@ document.getElementById('datei').addEventListener('change', async e => {
   await importieren(await datei.arrayBuffer());
 });
 
-document.getElementById('leeren').addEventListener('click', () => {
-  if (!confirm(`Wirklich alle ${objekte.length} Adressen aus der Liste löschen?`)) return;
+function listeLeeren() {
+  const frage = verbindung
+    ? `Wirklich alle ${objekte.length} Adressen löschen?\n\nSie werden auch aus der Google-Tabelle gelöscht. Fotos und Foto-Ordner im Google Drive bleiben erhalten.`
+    : `Wirklich alle ${objekte.length} Adressen aus der Liste löschen?`;
+  if (!confirm(frage)) return;
   suchLauf++;  // laufende Adresssuche abbrechen
   excelKnopfSperren(false);
+  loeschenVormerken(objekte.map(o => o.id));
   objekte = [];
   speichern();
   routeVerwerfen();
   allesZeichnen(false);
   karte.setView([START_ANSICHT.lat, START_ANSICHT.lon], START_ANSICHT.zoom);
   status('Liste geleert.');
-});
+}
 
 // ---------- Tagesroute ----------
 // Entfernung in km (Luftlinie)
@@ -668,13 +735,193 @@ document.getElementById('routeLoeschen').addEventListener('click', () => {
   allesZeichnen(true);
 });
 
+// ---------- Google Drive (über das Google-Skript in apps-script/Code.gs) ----------
+async function api(aktion, daten = {}) {
+  if (!verbindung) throw new Error('Nicht mit Google Drive verbunden.');
+  // Bewusst ohne eigene Header: so fragt der Browser nicht vorab nach (CORS), das kann Google nicht beantworten
+  const antwort = await fetch(verbindung.url, {
+    method: 'POST',
+    body: JSON.stringify({ code: verbindung.code, aktion, ...daten }),
+  });
+  if (!antwort.ok) throw new Error(`Google antwortet mit Fehler ${antwort.status}.`);
+  let ergebnis;
+  try { ergebnis = await antwort.json(); }
+  catch { throw new Error('Unerwartete Antwort von Google. Stimmt die Web-App-Adresse, und steht der Zugriff auf „Jeder“?'); }
+  if (!ergebnis.ok) throw new Error(ergebnis.fehler);
+  return ergebnis;
+}
+
+// Kopfzeilen-Knopf: ☁️ Verbinden / ☁️ ✓ / ☁️ … / ☁️ ⚠️
+function cloudStatus(zustand, text = '') {
+  const knopf = document.getElementById('cloudBtn');
+  knopf.textContent = { aus: '☁️ Verbinden', ok: '☁️ ✓', laeuft: '☁️ …', fehler: '☁️ ⚠️' }[zustand];
+  knopf.title = text || { aus: 'Nicht mit Google Drive verbunden', ok: 'Alles in Google Drive gespeichert', laeuft: 'Speichere in Google Drive …', fehler: 'Fehler' }[zustand];
+  document.getElementById('verbindungInfo').textContent = {
+    aus: 'Nicht verbunden. Daten liegen nur in diesem Browser.',
+    ok: '✅ Verbunden. Alle Änderungen sind in Google Drive gespeichert.',
+    laeuft: '⏳ Speichere in Google Drive …',
+    fehler: '⚠️ ' + text + ' Änderungen bleiben vorgemerkt und werden automatisch erneut gesendet.',
+  }[zustand];
+}
+
+let hochladenTimer = null;
+let hochladenLaeuft = false;
+function hochladenPlanen(ms = 1500) {
+  clearTimeout(hochladenTimer);
+  hochladenTimer = setTimeout(hochladen, ms);
+}
+
+// Sendet alle vorgemerkten Änderungen. Was währenddessen neu geändert wird, geht in die nächste Runde.
+async function hochladen() {
+  if (!verbindung || hochladenLaeuft) return;
+  if (!ausstehend.speichern.size && !ausstehend.loeschen.size) { cloudStatus('ok'); return; }
+  hochladenLaeuft = true;
+  cloudStatus('laeuft');
+  const loeschen = [...ausstehend.loeschen];
+  const speichernIds = [...ausstehend.speichern];
+  ausstehend.loeschen.clear();
+  ausstehend.speichern.clear();
+  let fehler = null;
+  try {
+    if (loeschen.length) await api('objekteLoeschen', { ids: loeschen });
+    const nachId = new Map(objekte.map(o => [o.id, o]));
+    const liste = speichernIds.map(id => nachId.get(id)).filter(Boolean);
+    if (liste.length) await api('objekteSpeichern', { objekte: liste });
+  } catch (e) {
+    fehler = e;
+    // Zurück in die Warteschlange (sofern nicht inzwischen anders geändert)
+    loeschen.forEach(id => { if (!ausstehend.speichern.has(id)) ausstehend.loeschen.add(id); });
+    speichernIds.forEach(id => { if (!ausstehend.loeschen.has(id)) ausstehend.speichern.add(id); });
+  }
+  ausstehendMerken();
+  hochladenLaeuft = false;
+  if (fehler) {
+    cloudStatus('fehler', fehler.message);
+    hochladenPlanen(15000);
+  } else if (ausstehend.speichern.size || ausstehend.loeschen.size) {
+    hochladenPlanen(500);
+  } else {
+    cloudStatus('ok');
+  }
+}
+
+// Google-Werte (alles Text) in App-Werte umwandeln
+function normalisieren(o) {
+  const zahl = v => (v === '' || v == null || isNaN(+v)) ? null : +v;
+  return {
+    ...o,
+    plz: String(o.plz ?? '').trim().replace(/^(\d{1,4})$/, p => p.padStart(5, '0')),
+    lat: zahl(o.lat), lon: zahl(o.lon),
+    geoStatus: o.geoStatus || 'offen',
+    status: o.status || 'offen',
+    notizen: o.notizen || '',
+  };
+}
+
+// Erst eigene Änderungen hochladen, dann den Stand aus Google holen.
+// Ist die Google-Tabelle noch leer, werden die Adressen aus diesem Browser hochgeladen.
+async function synchronisieren() {
+  cloudStatus('laeuft');
+  try {
+    await hochladen();
+    if (ausstehend.speichern.size || ausstehend.loeschen.size) throw new Error('Hochladen fehlgeschlagen.');
+    const daten = await api('laden');
+    fotos = daten.fotos || [];
+    if (daten.objekte.length) {
+      objekte = daten.objekte.map(normalisieren);
+      merken(SPEICHER_KEY, objekte);
+      cloudStatus('ok');
+    } else if (objekte.length) {
+      status(`☁️ Lade ${objekte.length} Adressen in die Google-Tabelle hoch …`);
+      speichern();
+      clearTimeout(hochladenTimer);
+      await hochladen();
+      status(ausstehend.speichern.size
+        ? '⚠️ Hochladen in die Google-Tabelle fehlgeschlagen. Wird automatisch erneut versucht.'
+        : `✅ ${objekte.length} Adressen in die Google-Tabelle hochgeladen.`);
+    } else {
+      cloudStatus('ok');
+    }
+    allesZeichnen(true);
+    return true;
+  } catch (e) {
+    cloudStatus('fehler', e.message);
+    status('⚠️ Google Drive: ' + e.message);
+    return false;
+  } finally {
+    if (objekte.some(o => o.geoStatus === 'offen')) koordinatenSuchen();
+  }
+}
+
+function verbindungPanelZeigen(zeigen) {
+  const panel = document.getElementById('verbindungPanel');
+  panel.hidden = !zeigen;
+  if (!zeigen) return;
+  document.getElementById('vUrl').value = verbindung?.url || '';
+  document.getElementById('vCode').value = verbindung?.code || '';
+  document.getElementById('vTrennen').hidden = !verbindung;
+  if (!verbindung) cloudStatus('aus');
+  panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+document.getElementById('cloudBtn').addEventListener('click', () =>
+  verbindungPanelZeigen(document.getElementById('verbindungPanel').hidden));
+document.getElementById('vSchliessen').addEventListener('click', () => verbindungPanelZeigen(false));
+
+document.getElementById('vVerbinden').addEventListener('click', async () => {
+  const url = document.getElementById('vUrl').value.trim();
+  const code = document.getElementById('vCode').value.trim();
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) {
+    status('❌ Die Web-App-Adresse muss so aussehen: https://script.google.com/macros/s/…/exec');
+    return;
+  }
+  if (!code) { status('❌ Bitte den Zugangscode eingeben.'); return; }
+
+  const knopf = document.getElementById('vVerbinden');
+  knopf.disabled = true;
+  const vorher = verbindung;
+  verbindung = { url, code };
+  // Verbindung testen, bevor sie gespeichert wird
+  try {
+    await api('laden');
+  } catch (e) {
+    verbindung = vorher;
+    knopf.disabled = false;
+    status('❌ Verbindung fehlgeschlagen: ' + e.message);
+    cloudStatus(vorher ? 'fehler' : 'aus', e.message);
+    return;
+  }
+  merken(VERBINDUNG_KEY, verbindung);
+  status('✅ Mit Google Drive verbunden.');
+  await synchronisieren();
+  knopf.disabled = false;
+  verbindungPanelZeigen(false);
+});
+
+document.getElementById('vTrennen').addEventListener('click', () => {
+  if (!confirm('Verbindung zu Google Drive trennen?\n\nDie Daten in Google Drive bleiben erhalten. Dieser Browser behält eine Kopie.')) return;
+  verbindung = null;
+  merken(VERBINDUNG_KEY, null);
+  ausstehend.speichern.clear();
+  ausstehend.loeschen.clear();
+  ausstehendMerken();
+  clearTimeout(hochladenTimer);
+  verbindungPanelZeigen(false);
+  cloudStatus('aus');
+  status('Verbindung zu Google Drive getrennt.');
+});
+
 // ---------- Start ----------
 if (route) {
   document.getElementById('startText').value = route.start.text === 'Mein Standort' ? '' : route.start.text;
   document.getElementById('rund').checked = route.rund;
 }
 allesZeichnen(true);
-if (objekte.some(o => o.geoStatus === 'offen')) koordinatenSuchen();
+if (verbindung) synchronisieren();
+else {
+  cloudStatus('aus');
+  if (objekte.some(o => o.geoStatus === 'offen')) koordinatenSuchen();
+}
 </script>
 </body>
 </html>
