@@ -74,6 +74,43 @@
   .adr small { display: block; color: var(--muted); }
   .hinweis { color: var(--fehler); font-size: .85rem; }
   input[type=file] { display: none; }
+
+  /* Tagesroute */
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 10px; font-size: 1.1rem; }
+  .feld { display: block; margin-bottom: 10px; font-size: .9rem; color: var(--muted); }
+  .feld input[type=text], .feld input[type=number] {
+    display: block; width: 100%; margin-top: 4px;
+    font-size: 1rem; padding: 9px 10px;
+    border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+  }
+  .zeile { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .zeile .feld { flex: 1; min-width: 140px; }
+  .haken { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: .95rem; }
+  .haken input { width: 20px; height: 20px; }
+  .knoepfe { display: flex; gap: 10px; flex-wrap: wrap; }
+  .etappe { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+  .etappe h3 { margin: 0 0 8px; font-size: 1rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .etappe h3 span { flex: 1; }
+  .etappe a.btn { text-decoration: none; font-size: .95rem; padding: 8px 12px; }
+  ol.stopps { margin: 0; padding: 0; list-style: none; }
+  ol.stopps li { display: flex; gap: 10px; align-items: center; padding: 6px 0; cursor: pointer; }
+  .nr {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    background: var(--accent); color: #fff; border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,.35);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 12px;
+  }
+  .nr.bearbeitet { background: var(--erledigt); }
+  .nr.start { background: #1d2330; }
+
+  /* Schmale Handys: Kopfzeile in einer Zeile halten */
+  @media (max-width: 420px) {
+    h1 { font-size: 1.05rem; white-space: nowrap; }
+    header { gap: 8px; }
+    header .btn { padding: 8px 10px; font-size: .9rem; }
+  }
 </style>
 </head>
 <body>
@@ -86,7 +123,29 @@
 
 <main>
   <p id="status"></p>
+
+  <section class="panel" id="routePanel" hidden>
+    <h2>🚗 Tagesroute</h2>
+    <div class="zeile">
+      <label class="feld">Startpunkt
+        <input type="text" id="startText" placeholder="Adresse, z. B. Hotel">
+      </label>
+      <button class="btn zweit" id="standortBtn" style="margin-bottom:10px">📍 Mein Standort</button>
+    </div>
+    <div class="zeile">
+      <label class="feld">Stopps heute
+        <input type="number" id="anzahl" min="1" value="17" inputmode="numeric">
+      </label>
+    </div>
+    <label class="haken"><input type="checkbox" id="rund"> Am Ende zurück zum Startpunkt</label>
+    <div class="knoepfe">
+      <button class="btn" id="routeBtn">Route berechnen</button>
+      <button class="btn zweit" id="routeLoeschen" hidden>Route löschen</button>
+    </div>
+  </section>
+
   <div id="karte"></div>
+  <section class="panel" id="routeErgebnis" hidden></section>
   <div id="inhalt"></div>
 </main>
 
@@ -95,6 +154,12 @@
 const SPEICHER_KEY = 'immoKartei.objekte';   // vorübergehender Speicher im Browser (bis Google Drive angebunden ist)
 const GEOCODER_PAUSE_MS = 1100;              // OpenStreetMap erlaubt höchstens 1 Anfrage pro Sekunde
 const START_ANSICHT = { lat: 51.16, lon: 10.45, zoom: 6 };  // Deutschland
+const ROUTE_KEY = 'immoKartei.route';
+// Google-Maps-App erlaubt 9 Zwischenstopps + Ziel pro Link (Safari ohne App nur 3)
+const ETAPPE_STOPPS = 10;
+// Fahrzeiten kommen vom kostenlosen OSRM-Server (OpenStreetMap-Straßendaten), max. 100 Punkte pro Anfrage
+const OSRM_URL = 'https://router.project-osrm.org/table/v1/driving/';
+const OSRM_MAX_PUNKTE = 100;
 
 // Erwartete Spalten in der Excel-Datei (Groß-/Kleinschreibung egal)
 const SPALTEN = {
@@ -121,6 +186,17 @@ function speichern() {
   try { localStorage.setItem(SPEICHER_KEY, JSON.stringify(objekte)); } catch {}
 }
 
+// Tagesroute: { start: { text, lat, lon }, ids: [Objekt-IDs in Reihenfolge], rund: bool, km }
+let route = (() => {
+  try { return JSON.parse(localStorage.getItem(ROUTE_KEY)); } catch { return null; }
+})();
+function routeSpeichern() {
+  try {
+    if (route) localStorage.setItem(ROUTE_KEY, JSON.stringify(route));
+    else localStorage.removeItem(ROUTE_KEY);
+  } catch {}
+}
+
 const schluessel = o => `${o.strasse}|${o.plz}|${o.ort}`.toLowerCase();
 const adresseText = o => `${o.strasse}, ${o.plz} ${o.ort}`;
 // Überschrift und Unterzeilen für Liste und Karte (ohne Objektname wird die Straße zur Überschrift)
@@ -143,18 +219,40 @@ function farbe(o) {
   return o.status === 'bearbeitet' ? '#2da44e' : '#1f6feb';
 }
 
+const nummerIcon = (text, klasse = '') => L.divIcon({
+  className: '', html: `<div class="nr ${klasse}">${text}</div>`, iconSize: [26, 26], iconAnchor: [13, 13],
+});
+
 function karteZeichnen(zoomen) {
   markerEbene.clearLayers();
   const punkte = [];
+  const routeNr = new Map((route?.ids || []).map((id, i) => [id, i + 1]));
+
   for (const o of objekte) {
     if (o.geoStatus !== 'ok') continue;
-    const m = L.circleMarker([o.lat, o.lon], {
-      radius: 8, color: '#fff', weight: 2, fillColor: farbe(o), fillOpacity: 1,
-    }).bindPopup(`<b>${esc(titel(o))}</b><br>${unterzeilen(o).map(esc).join('<br>')}`);
-    m.addTo(markerEbene);
+    const popup = `<b>${esc(titel(o))}</b><br>${unterzeilen(o).map(esc).join('<br>')}`;
+    const nr = routeNr.get(o.id);
+    const m = nr
+      ? L.marker([o.lat, o.lon], { icon: nummerIcon(nr, o.status), zIndexOffset: 1000 })
+      // Adressen, die nicht in der heutigen Route sind, werden blasser gezeigt
+      : L.circleMarker([o.lat, o.lon], {
+          radius: 7, color: '#fff', weight: 2, fillColor: farbe(o), fillOpacity: route ? .35 : 1,
+        });
+    m.bindPopup(popup).addTo(markerEbene);
     marker[o.id] = m;
-    punkte.push([o.lat, o.lon]);
+    if (!route || nr) punkte.push([o.lat, o.lon]);
   }
+
+  if (route) {
+    const s = route.start;
+    L.marker([s.lat, s.lon], { icon: nummerIcon('S', 'start'), zIndexOffset: 2000 })
+      .bindPopup(`<b>Start</b><br>${esc(s.text)}`).addTo(markerEbene);
+    const linie = [[s.lat, s.lon], ...routeObjekte().map(o => [o.lat, o.lon])];
+    if (route.rund) linie.push([s.lat, s.lon]);
+    L.polyline(linie, { color: '#1f6feb', weight: 3, opacity: .7, dashArray: '6 6' }).addTo(markerEbene);
+    punkte.push([s.lat, s.lon]);
+  }
+
   if (zoomen && punkte.length) karte.fitBounds(punkte, { padding: [30, 30], maxZoom: 15 });
 }
 
@@ -201,8 +299,10 @@ function listeZeichnen() {
 
 function allesZeichnen(zoomen) {
   karteZeichnen(zoomen);
+  routeZeichnen();
   listeZeichnen();
   document.getElementById('leeren').hidden = !objekte.length;
+  document.getElementById('routePanel').hidden = !objekte.some(o => o.geoStatus === 'ok');
 }
 
 function status(text) {
@@ -337,12 +437,242 @@ document.getElementById('leeren').addEventListener('click', () => {
   excelKnopfSperren(false);
   objekte = [];
   speichern();
+  routeVerwerfen();
   allesZeichnen(false);
   karte.setView([START_ANSICHT.lat, START_ANSICHT.lon], START_ANSICHT.zoom);
   status('Liste geleert.');
 });
 
+// ---------- Tagesroute ----------
+// Entfernung in km (Luftlinie)
+function km(a, b) {
+  const r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+// Fahrzeiten (Sekunden) und Strecken (Meter) zwischen allen Punkten, als Tabelle [von][nach]
+async function fahrMatrix(punkte) {
+  if (punkte.length > OSRM_MAX_PUNKTE) throw new Error('Zu viele Punkte für den Routendienst');
+  const koordinaten = punkte.map(p => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+  const antwort = await fetch(OSRM_URL + koordinaten + '?annotations=duration,distance');
+  if (!antwort.ok) throw new Error('HTTP ' + antwort.status);
+  const daten = await antwort.json();
+  if (daten.code !== 'Ok') throw new Error(daten.code);
+  // Nicht erreichbare Verbindungen (null) bekommen einen riesigen Wert, damit sie gemieden werden
+  const fix = tabelle => tabelle.map(zeile => zeile.map(w => w ?? 1e9));
+  return { dauer: fix(daten.durations), meter: fix(daten.distances) };
+}
+
+// Möglichst kurze Reihenfolge ab „start“: erst immer zum nächsten Punkt (Nächster Nachbar),
+// danach Kreuzungen auflösen (2-opt). Bei „rund“ endet die Route wieder am Start.
+// „dist(a, b)“ liefert den Aufwand zwischen zwei Punkten (Fahrzeit oder Luftlinie).
+function optimieren(start, punkte, rund, dist = km) {
+  const rest = [...punkte];
+  const pfad = [start];
+  while (rest.length) {
+    const letzter = pfad[pfad.length - 1];
+    let besterIndex = 0;
+    rest.forEach((p, i) => { if (dist(letzter, p) < dist(letzter, rest[besterIndex])) besterIndex = i; });
+    pfad.push(rest.splice(besterIndex, 1)[0]);
+  }
+  if (rund) pfad.push(start);
+
+  const ende = rund ? pfad.length - 1 : pfad.length;  // Start (und ggf. Ziel) bleiben fest
+  let verbessert = true;
+  while (verbessert) {
+    verbessert = false;
+    for (let i = 1; i < ende - 1; i++) {
+      for (let j = i + 1; j < ende; j++) {
+        const a = pfad[i - 1], b = pfad[i], c = pfad[j], d = pfad[j + 1];
+        const vorher = dist(a, b) + (d ? dist(c, d) : 0);
+        const nachher = dist(a, c) + (d ? dist(b, d) : 0);
+        if (nachher < vorher - 1e-9) {
+          pfad.splice(i, j - i + 1, ...pfad.slice(i, j + 1).reverse());
+          verbessert = true;
+        }
+      }
+    }
+  }
+  return pfad.slice(1, ende);
+}
+
+function routeObjekte() {
+  const nachId = new Map(objekte.map(o => [o.id, o]));
+  return (route?.ids || []).map(id => nachId.get(id)).filter(o => o && o.geoStatus === 'ok');
+}
+
+function streckeKm(start, stopps, rund) {
+  const pfad = [start, ...stopps, ...(rund ? [start] : [])];
+  return pfad.slice(1).reduce((summe, p, i) => summe + km(pfad[i], p), 0);
+}
+
+// 135 → „2 Std. 15 Min.“
+function fahrzeitText(minuten) {
+  const m = Math.round(minuten);
+  return m < 60 ? `${m} Min.` : `${Math.floor(m / 60)} Std. ${m % 60} Min.`;
+}
+
+// Google-Maps-Link: ohne „origin“ startet Google Maps am aktuellen Standort
+function mapsLink(ziele) {
+  const params = new URLSearchParams({ api: '1', destination: ziele[ziele.length - 1], travelmode: 'driving' });
+  if (ziele.length > 1) params.set('waypoints', ziele.slice(0, -1).join('|'));
+  return 'https://www.google.com/maps/dir/?' + params;
+}
+
+let standortPos = null;  // gesetzt über „Mein Standort“, gelöscht sobald man selbst tippt
+
+async function startErmitteln() {
+  const text = document.getElementById('startText').value.trim();
+  if (standortPos) return { text: 'Mein Standort', ziel: `${standortPos.lat},${standortPos.lon}`, ...standortPos };
+  if (!text) throw new Error('Bitte einen Startpunkt eingeben oder „Mein Standort“ tippen.');
+  if (route && route.start.text === text) return route.start;  // nicht erneut suchen
+  const params = new URLSearchParams({ q: text, countrycodes: 'de', format: 'json', limit: '1' });
+  const antwort = await fetch('https://nominatim.openstreetmap.org/search?' + params, { headers: { 'Accept-Language': 'de' } });
+  if (!antwort.ok) throw new Error('Startpunkt konnte nicht gesucht werden (HTTP ' + antwort.status + ').');
+  const treffer = (await antwort.json())[0];
+  if (!treffer) throw new Error(`Startpunkt „${text}“ wurde nicht gefunden. Bitte mit PLZ und Ort eingeben.`);
+  return { text, ziel: text, lat: +treffer.lat, lon: +treffer.lon };
+}
+
+async function routeBerechnen() {
+  const knopf = document.getElementById('routeBtn');
+  const offen = objekte.filter(o => o.geoStatus === 'ok' && o.status === 'offen');
+  if (!offen.length) { status('✅ Alle Adressen sind bereits bearbeitet.'); return; }
+  const anzahl = Math.max(1, parseInt(document.getElementById('anzahl').value, 10) || 1);
+  const rund = document.getElementById('rund').checked;
+
+  knopf.disabled = true;
+  status('🔎 Suche Startpunkt …');
+  try {
+    const start = await startErmitteln();
+
+    // Fahrzeiten zwischen allen Punkten holen; klappt das nicht, wird mit Luftlinie gerechnet
+    status('🚗 Berechne Fahrzeiten …');
+    const punkte = [start, ...offen];
+    const index = new Map(punkte.map((p, i) => [p, i]));
+    let matrix = null;
+    try { matrix = await fahrMatrix(punkte); }
+    catch (e) { console.warn('Fahrzeiten nicht verfügbar, nutze Luftlinie', e); }
+    // Hin- und Rückweg können verschieden lang sein (Einbahnstraßen); für die Optimierung zählt der Mittelwert
+    const dist = matrix
+      ? (a, b) => { const i = index.get(a), j = index.get(b); return (matrix.dauer[i][j] + matrix.dauer[j][i]) / 2; }
+      : km;
+
+    // Beste Reihenfolge über ALLE offenen Adressen, davon die ersten „anzahl“ für heute.
+    // So bleibt das heutige Gebiet zusammenhängend, und morgen geht es dort weiter.
+    let heute = optimieren(start, offen, false, dist).slice(0, anzahl);
+    if (rund) heute = optimieren(start, heute, true, dist);
+
+    // Gesamtstrecke in Fahrtrichtung aufsummieren
+    const pfad = [start, ...heute, ...(rund ? [start] : [])];
+    let strecke = 0, minuten = null;
+    if (matrix) {
+      minuten = 0;
+      for (let k = 1; k < pfad.length; k++) {
+        const i = index.get(pfad[k - 1]), j = index.get(pfad[k]);
+        strecke += matrix.meter[i][j] / 1000;
+        minuten += matrix.dauer[i][j] / 60;
+      }
+    } else {
+      strecke = streckeKm(start, heute, rund);
+    }
+
+    route = { start, ids: heute.map(o => o.id), rund, km: strecke, minuten, basis: matrix ? 'strasse' : 'luftlinie' };
+    routeSpeichern();
+    status(matrix
+      ? `Route für ${heute.length} Stopps nach Fahrzeit berechnet.`
+      : `⚠️ Routendienst nicht erreichbar. Route für ${heute.length} Stopps wurde nach Luftlinie berechnet. Später erneut versuchen.`);
+    allesZeichnen(true);
+    document.getElementById('karte').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    status('❌ ' + e.message);
+  } finally {
+    knopf.disabled = false;
+  }
+}
+
+function routeZeichnen() {
+  const bereich = document.getElementById('routeErgebnis');
+  document.getElementById('routeLoeschen').hidden = !route;
+  const stopps = routeObjekte();
+  if (!route || !stopps.length) { bereich.hidden = true; bereich.innerHTML = ''; return; }
+
+  // Einträge in Etappen à ETAPPE_STOPPS aufteilen; bei Rundtour ist der Start das letzte Ziel
+  const eintraege = stopps.map((o, i) => ({ nr: i + 1, o }));
+  if (route.rund) eintraege.push({ start: true });
+  const etappen = [];
+  for (let i = 0; i < eintraege.length; i += ETAPPE_STOPPS) etappen.push(eintraege.slice(i, i + ETAPPE_STOPPS));
+
+  const fertig = stopps.filter(o => o.status === 'bearbeitet').length;
+  bereich.innerHTML = `
+    <h2>Heute: ${stopps.length} Stopps · ${route.basis === 'strasse'
+      ? `ca. ${Math.round(route.km)} km · ca. ${fahrzeitText(route.minuten)} Fahrzeit`
+      : `ca. ${Math.round(route.km)} km Luftlinie`}</h2>
+    <div style="color:var(--muted);font-size:.9rem">Start: ${esc(route.start.text)}${fertig ? ` · ✅ ${fertig} erledigt` : ''}</div>
+    ${etappen.map((etappe, k) => {
+      // Bereits bearbeitete Stopps werden nicht mehr angefahren
+      const ziele = etappe
+        .filter(e => e.start || e.o.status !== 'bearbeitet')
+        .map(e => e.start ? route.start.ziel : adresseText(e.o));
+      const nummern = etappe.filter(e => !e.start).map(e => e.nr);
+      const bereichText = nummern.length ? `Stopp ${nummern[0]}${nummern.length > 1 ? '–' + nummern[nummern.length - 1] : ''}` : 'Rückfahrt';
+      return `
+        <div class="etappe">
+          <h3><span>Etappe ${k + 1} · ${bereichText}</span>
+            ${ziele.length ? `<a class="btn" href="${esc(mapsLink(ziele))}" target="_blank" rel="noopener">In Google Maps öffnen</a>` : '<span>✅ erledigt</span>'}
+          </h3>
+          <ol class="stopps">
+            ${etappe.map(e => e.start ? `
+              <li data-start><span class="nr start">S</span><span class="adr"><b>Zurück zum Start</b><small>${esc(route.start.text)}</small></span></li>` : `
+              <li data-id="${e.o.id}"><span class="nr ${e.o.status}">${e.nr}</span>
+                <span class="adr"><b>${esc(titel(e.o))}</b><small>${esc(adresseText(e.o))}</small></span></li>`).join('')}
+          </ol>
+        </div>`;
+    }).join('')}`;
+  bereich.hidden = false;
+
+  bereich.querySelectorAll('li[data-id]').forEach(li => li.addEventListener('click', () => {
+    const m = marker[li.dataset.id];
+    if (!m) return;
+    karte.setView(m.getLatLng(), 17);
+    m.openPopup();
+    document.getElementById('karte').scrollIntoView({ behavior: 'smooth' });
+  }));
+}
+
+function routeVerwerfen() {
+  route = null;
+  routeSpeichern();
+}
+
+document.getElementById('standortBtn').addEventListener('click', () => {
+  if (!navigator.geolocation) { status('❌ Dieses Gerät kann den Standort nicht ermitteln.'); return; }
+  status('📍 Ermittle Standort …');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      standortPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      document.getElementById('startText').value = '📍 Mein Standort';
+      status('📍 Standort übernommen.');
+    },
+    () => status('❌ Standort nicht verfügbar. Bitte Ortungsdienste für den Browser erlauben oder eine Adresse eingeben.'),
+    { enableHighAccuracy: true, timeout: 15000 },
+  );
+});
+document.getElementById('startText').addEventListener('input', () => { standortPos = null; });
+document.getElementById('routeBtn').addEventListener('click', routeBerechnen);
+document.getElementById('routeLoeschen').addEventListener('click', () => {
+  routeVerwerfen();
+  status('Route gelöscht.');
+  allesZeichnen(true);
+});
+
 // ---------- Start ----------
+if (route) {
+  document.getElementById('startText').value = route.start.text === 'Mein Standort' ? '' : route.start.text;
+  document.getElementById('rund').checked = route.rund;
+}
 allesZeichnen(true);
 if (objekte.some(o => o.geoStatus === 'offen')) koordinatenSuchen();
 </script>
