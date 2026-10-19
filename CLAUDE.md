@@ -17,9 +17,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. ✅ Speicher in Google Drive: Google-Tabelle + Drive-Ordner für Fotos über ein Apps-Script-Web-App (`apps-script/Code.gs`), geschützt mit Zugangscode.
 4. ✅ Vor Ort: Fotos **in der App aufnehmen** und dabei `navigator.geolocation` speichern (iOS entfernt EXIF-GPS beim Hochladen aus der Galerie oft), Notizen, Status „bearbeitet“
 5. Karteikarte: Karte mit Foto-Punkten, Klick zeigt Foto, Notizen darunter
-6. GitHub Pages (Repo öffentlich, enthält keine Daten), Test am iPhone
+6. ✅ GitHub Pages (Repo öffentlich, enthält keine Daten). Wurde vor Schritt 5 gezogen, damit der Nutzer Kamera/GPS am iPhone testen kann.
 
 Später: Zugriff für weitere Personen.
+
+## GitHub
+
+- Remote `Bitson21/immo-kartei` (**öffentlich**). Live über GitHub Pages aus Branch `main`: https://bitson21.github.io/immo-kartei/ – jeder Merge auf `main` geht nach 1–2 Minuten live. Per `<meta name="robots" content="noindex">` für Suchmaschinen gesperrt.
+- Änderungen laufen über PRs (eigener Branch, nicht direkt auf `main`).
+- Weil öffentlich: nie echte Adressen, Web-App-Adressen, Zugangscodes oder E-Mail-Adressen committen. Commit-Autor ist `Bitson21 <335550459+Bitson21@users.noreply.github.com>` (lokal im Repo eingestellt).
+- `apple-touch-icon.png` (180×180) ist das Home-Bildschirm-Icon. Am iPhone hat die Home-Bildschirm-App einen eigenen `localStorage`, getrennt von Safari.
 
 ## Architektur (alles in `index.html` im `<script>`)
 
