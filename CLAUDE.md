@@ -25,6 +25,7 @@ Später: Zugriff für weitere Personen.
 
 - Remote `Bitson21/immo-kartei` (**öffentlich**). Live über GitHub Pages aus Branch `main`: https://bitson21.github.io/immo-kartei/ – jeder Merge auf `main` geht nach 1–2 Minuten live. Per `<meta name="robots" content="noindex">` für Suchmaschinen gesperrt.
 - Änderungen laufen über PRs (eigener Branch, nicht direkt auf `main`).
+- **Bei jeder Änderung an `index.html` die Konstante `APP_VERSION` hochsetzen** (Format `JJJJ-MM-TT.N`). GitHub Pages schickt `max-age=600`, und die iPhone-Home-Bildschirm-App lädt oft noch länger aus dem Zwischenspeicher. `aufUpdatePruefen()` holt `index.html` mit `cache: 'no-store'`, vergleicht `APP_VERSION` und zeigt sonst den Hinweis `#updateHinweis`. „Aktualisieren“ lädt über `?v=<version>` neu (neue Adresse = am Cache vorbei). Geprüft wird beim Start, bei `visibilitychange` und alle 30 Minuten.
 - Weil öffentlich: nie echte Adressen, Web-App-Adressen, Zugangscodes oder E-Mail-Adressen committen. Commit-Autor ist `Bitson21 <335550459+Bitson21@users.noreply.github.com>` (lokal im Repo eingestellt).
 - `apple-touch-icon.png` (180×180) ist das Home-Bildschirm-Icon. Am iPhone hat die Home-Bildschirm-App einen eigenen `localStorage`, getrennt von Safari.
 

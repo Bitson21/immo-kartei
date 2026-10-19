@@ -76,6 +76,8 @@ Die App vom Home-Bildschirm hat einen eigenen Speicher, getrennt von Safari. Des
 
 Für Etappen mit mehr als 3 Stopps muss die **Google-Maps-App** installiert sein.
 
+**Updates:** Gibt es eine neue Version, erscheint unten der Hinweis **🔄 Neue Version verfügbar**. Auf **Aktualisieren** tippen. (Die App prüft das beim Öffnen und beim Zurückkehren in die App.)
+
 ## Google Drive verbinden (einmalig, ca. 10 Minuten)
 
 Die Daten liegen in einer Google-Tabelle in deinem Drive, die Fotos in einem Ordner „Immo-Kartei Fotos“. Die Verbindung macht ein kleines Google-Skript ([apps-script/Code.gs](apps-script/Code.gs)).
