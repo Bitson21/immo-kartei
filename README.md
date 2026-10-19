@@ -7,7 +7,7 @@ Web-App zum Besichtigen von Immobilien: Adressen aus Excel laden, Route planen, 
 - ✅ Schritt 1: Excel laden, Adressen auf der Karte und in einer Liste
 - ✅ Schritt 2: Tagesroute mit Google Maps
 - ✅ Schritt 3: Speichern in Google Drive
-- ⏳ Schritt 4: Fotos mit Standort, Notizen, „bearbeitet“
+- ✅ Schritt 4: Fotos mit Standort, Notizen, „bearbeitet“
 - ⏳ Schritt 5: Karteikarte mit Foto-Karte
 - ⏳ Schritt 6: Online stellen und am iPhone testen
 
@@ -41,6 +41,19 @@ Mit **Liste leeren** (unter der Adressliste) werden alle Adressen gelöscht, mit
 Die App sucht die Reihenfolge mit der kürzesten **Fahrzeit mit dem Auto** über alle **offenen** Adressen und nimmt davon die gewünschte Anzahl. So ist das Tagesgebiet zusammenhängend, und am nächsten Tag geht es dort weiter. Die Fahrzeiten kommen vom kostenlosen Routendienst OSRM (OpenStreetMap-Straßendaten, ohne Verkehr). Ist er nicht erreichbar, rechnet die App ersatzweise mit Luftlinie und zeigt einen Hinweis.
 
 Die Route wird in Etappen zu je 10 Adressen aufgeteilt. **In Google Maps öffnen** startet die Navigation ab dem aktuellen Standort. Dafür muss die **Google-Maps-App** auf dem iPhone installiert sein (im Safari-Browser erlaubt Google nur 3 Zwischenstopps). Bereits bearbeitete Adressen werden in den Etappen übersprungen.
+
+### Vor Ort: Karteikarte
+
+Eine Immobilie in der Liste, in der Tagesroute oder im Karten-Popup (**Karteikarte öffnen**) antippen.
+
+- **📷 Foto aufnehmen** öffnet die Kamera. Die App speichert den GPS-Standort zum Foto (Anzeige z. B. „📍 ±6 m“), verkleinert das Foto auf max. 2000 Pixel und lädt es in den Drive-Ordner der Immobilie. Während des Hochladens kann man schon das nächste Foto machen. Ohne Netz wird alle 10 Sekunden neu versucht, dabei die App offen lassen.
+- **🗑** auf einem Foto löscht es (Drive-Papierkorb, 30 Tage wiederherstellbar).
+- **Notizen** werden beim Tippen automatisch gespeichert.
+- **Als bearbeitet markieren**: Punkt wird grün, die Adresse fällt aus den nächsten Tagesrouten. Erneut tippen setzt sie wieder auf „offen“.
+- **🚗 Hin navigieren** öffnet Google Maps mit dieser Adresse.
+- **← Zurück** (oder am iPhone vom linken Rand wischen) schließt die Karteikarte.
+
+Fotos gehen nur über die Kamera in der App, nicht aus der Galerie: Das iPhone entfernt bei Galeriefotos oft den Aufnahmeort. Für den Standort muss Safari die Ortung erlauben (Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites → „Beim Verwenden der App“).
 
 ## Google Drive verbinden (einmalig, ca. 10 Minuten)
 

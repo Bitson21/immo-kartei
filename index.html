@@ -105,6 +105,42 @@
   .nr.bearbeitet { background: var(--erledigt); }
   .nr.start { background: #1d2330; }
 
+  /* Karteikarte (Vollbild-Ansicht einer Immobilie) */
+  #karteikarte {
+    position: fixed; inset: 0; z-index: 3000;
+    background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
+  .kk-kopf {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top));
+    display: flex; align-items: center; gap: 12px;
+  }
+  .kk-kopf span { flex: 1; text-align: right; color: var(--muted); font-size: .9rem; }
+  .kk-inhalt { max-width: 700px; margin: 0 auto; padding: 14px 16px 60px; }
+  .kk-inhalt h2 { margin: 0 0 4px; font-size: 1.3rem; }
+  .kk-inhalt h3 { margin: 0 0 10px; font-size: 1.05rem; }
+  .gedimmt { color: var(--muted); font-size: .92rem; }
+  .btn.erledigt { background: var(--erledigt); }
+  a.btn { text-decoration: none; }
+  textarea {
+    width: 100%; font: inherit; font-size: 1rem; padding: 10px;
+    border: 1px solid var(--line); border-radius: 8px; resize: vertical;
+  }
+  .fotos { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-top: 12px; }
+  .foto { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #e9ecf2; }
+  .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .foto .badge {
+    position: absolute; left: 4px; bottom: 4px;
+    background: rgba(0,0,0,.6); color: #fff; font-size: .72rem; padding: 2px 6px; border-radius: 6px;
+  }
+  .foto .weg {
+    position: absolute; right: 4px; top: 4px; border: 0; border-radius: 6px;
+    background: rgba(0,0,0,.55); color: #fff; font-size: .85rem; padding: 3px 6px; cursor: pointer;
+  }
+  .foto.wartet img { opacity: .55; }
+  .popup-btn { margin-top: 6px; padding: 6px 10px; font-size: .9rem; }
+
   /* Schmale Handys: Kopfzeile in einer Zeile halten */
   @media (max-width: 420px) {
     h1 { font-size: 1.05rem; white-space: nowrap; }
@@ -166,6 +202,35 @@
   <div id="inhalt"></div>
 </main>
 
+<div id="karteikarte" hidden>
+  <div class="kk-kopf">
+    <button class="btn zweit" id="kkZurueck">← Zurück</button>
+    <span id="kkStand"></span>
+  </div>
+  <div class="kk-inhalt">
+    <h2 id="kkTitel"></h2>
+    <div id="kkUnterzeilen" class="gedimmt"></div>
+    <div class="knoepfe" style="margin:14px 0">
+      <button class="btn" id="kkStatus"></button>
+      <a class="btn zweit" id="kkNavi" target="_blank" rel="noopener">🚗 Hin navigieren</a>
+    </div>
+
+    <section class="panel">
+      <h3>📷 Fotos</h3>
+      <label class="btn" for="kamera" id="kkFotoKnopf">📷 Foto aufnehmen</label>
+      <input type="file" id="kamera" accept="image/*" capture="environment">
+      <p id="kkFotoInfo" class="gedimmt" style="margin:10px 0 0"></p>
+      <div class="fotos" id="kkFotos"></div>
+    </section>
+
+    <section class="panel">
+      <h3>📝 Notizen</h3>
+      <textarea id="kkNotizen" rows="7" placeholder="Notizen zu dieser Immobilie …"></textarea>
+      <div id="kkNotizStand" class="gedimmt"></div>
+    </section>
+  </div>
+</div>
+
 <script>
 // ---------- Einstellungen ----------
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
@@ -179,6 +244,9 @@ const ETAPPE_STOPPS = 10;
 // Fahrzeiten kommen vom kostenlosen OSRM-Server (OpenStreetMap-Straßendaten), max. 100 Punkte pro Anfrage
 const OSRM_URL = 'https://router.project-osrm.org/table/v1/driving/';
 const OSRM_MAX_PUNKTE = 100;
+// Fotos werden vor dem Hochladen verkleinert (längste Seite in Pixeln, JPEG-Qualität)
+const FOTO_MAX_PX = 2000;
+const FOTO_QUALITAET = 0.8;
 
 // Erwartete Spalten in der Excel-Datei (Groß-/Kleinschreibung egal)
 const SPALTEN = {
@@ -283,7 +351,8 @@ function karteZeichnen(zoomen) {
 
   for (const o of objekte) {
     if (o.geoStatus !== 'ok') continue;
-    const popup = `<b>${esc(titel(o))}</b><br>${unterzeilen(o).map(esc).join('<br>')}`;
+    const popup = `<b>${esc(titel(o))}</b><br>${unterzeilen(o).map(esc).join('<br>')}
+      <br><button class="btn popup-btn" data-oeffnen="${esc(o.id)}">Karteikarte öffnen</button>`;
     const nr = routeNr.get(o.id);
     const m = nr
       ? L.marker([o.lat, o.lon], { icon: nummerIcon(nr, o.status), zIndexOffset: 1000 })
@@ -335,7 +404,7 @@ function listeZeichnen() {
       ${sortiert.map(o => `
         <li data-id="${o.id}">
           <span class="punkt ${o.geoStatus === 'fehlt' ? 'fehler' : o.status}"></span>
-          <span class="adr"><b>${esc(titel(o))}</b>${unterzeilen(o).map(z => `<small>${esc(z)}</small>`).join('')}
+          <span class="adr"><b>${esc(titel(o))}</b>${unterzeilen(o).map(z => `<small>${esc(z)}</small>`).join('')}${infoZeile(o)}
             ${o.geoStatus === 'fehlt' ? '<span class="hinweis">Adresse auf der Karte nicht gefunden. Bitte Schreibweise in der Excel prüfen.</span>' : ''}
           </span>
         </li>`).join('')}
@@ -343,13 +412,15 @@ function listeZeichnen() {
     <div style="margin-top:14px"><button class="btn zweit" id="leeren">Liste leeren</button></div>`;
 
   document.getElementById('leeren').addEventListener('click', listeLeeren);
-  inhalt.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
-    const m = marker[li.dataset.id];
-    if (!m) return;
-    karte.setView(m.getLatLng(), 17);
-    m.openPopup();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }));
+  inhalt.querySelectorAll('li').forEach(li =>
+    li.addEventListener('click', () => karteikarteOeffnen(li.dataset.id)));
+}
+
+// Kleine Zeile „📷 3 · 📝 Notiz“ in der Liste
+function infoZeile(o) {
+  const anzahl = fotosVon(o.id).length;
+  const teile = [anzahl ? `📷 ${anzahl}` : '', o.notizen ? '📝 Notiz' : ''].filter(Boolean);
+  return teile.length ? `<small>${teile.join(' · ')}</small>` : '';
 }
 
 function allesZeichnen(zoomen) {
@@ -700,13 +771,8 @@ function routeZeichnen() {
     }).join('')}`;
   bereich.hidden = false;
 
-  bereich.querySelectorAll('li[data-id]').forEach(li => li.addEventListener('click', () => {
-    const m = marker[li.dataset.id];
-    if (!m) return;
-    karte.setView(m.getLatLng(), 17);
-    m.openPopup();
-    document.getElementById('karte').scrollIntoView({ behavior: 'smooth' });
-  }));
+  bereich.querySelectorAll('li[data-id]').forEach(li =>
+    li.addEventListener('click', () => karteikarteOeffnen(li.dataset.id)));
 }
 
 function routeVerwerfen() {
@@ -735,14 +801,277 @@ document.getElementById('routeLoeschen').addEventListener('click', () => {
   allesZeichnen(true);
 });
 
+// ---------- Karteikarte (vor Ort: Fotos, Notizen, Status) ----------
+let offenesObjekt = null;      // id der geöffneten Karteikarte
+const fotoCache = new Map();   // dateiId -> Bild-URL (damit Fotos nur einmal geladen werden)
+// Fotos, die noch hochgeladen werden: { tmpId, objektId, blob, vorschau, standort (Promise), aufgenommenAm, fehler }
+const uploadSchlange = [];
+let uploadLaeuft = false;
+let standortBeimTippen = null;  // Promise, gestartet beim Tippen auf „Foto aufnehmen“
+let notizTimer = null;
+
+const objektNachId = id => objekte.find(o => o.id === id);
+const fotosVon = id => fotos.filter(f => f.objektId === id);
+
+function karteikarteOeffnen(id) {
+  if (!objektNachId(id)) return;
+  offenesObjekt = id;
+  // Eigener Verlaufseintrag: „Zurück“ (auch Wischen am iPhone) schließt die Karteikarte statt die App
+  if (!history.state?.karteikarte) history.pushState({ karteikarte: true }, '');
+  document.getElementById('karteikarte').hidden = false;
+  document.body.style.overflow = 'hidden';
+  document.getElementById('kkNotizen').value = objektNachId(id).notizen || '';
+  document.getElementById('kkNotizStand').textContent = '';
+  karteikarteZeichnen();
+  document.getElementById('karteikarte').scrollTop = 0;
+}
+
+function karteikarteSchliessen() {
+  notizSpeichern();
+  offenesObjekt = null;
+  document.getElementById('karteikarte').hidden = true;
+  document.body.style.overflow = '';
+  allesZeichnen(false);
+}
+
+function karteikarteZeichnen() {
+  const o = objektNachId(offenesObjekt);
+  if (!o) return;
+  document.getElementById('kkTitel').textContent = titel(o);
+  document.getElementById('kkUnterzeilen').innerHTML = unterzeilen(o).map(esc).join('<br>');
+  document.getElementById('kkNavi').href = mapsLink([adresseText(o)]);
+
+  const statusKnopf = document.getElementById('kkStatus');
+  const erledigt = o.status === 'bearbeitet';
+  statusKnopf.textContent = erledigt ? '✅ Bearbeitet' : 'Als bearbeitet markieren';
+  statusKnopf.classList.toggle('erledigt', erledigt);
+  statusKnopf.title = erledigt ? 'Tippen, um wieder auf „offen“ zu setzen' : '';
+
+  // Fotos: hochgeladene + noch wartende
+  const fertig = fotosVon(o.id);
+  const wartend = uploadSchlange.filter(u => u.objektId === o.id);
+  const knopf = document.getElementById('kkFotoKnopf');
+  knopf.style.pointerEvents = verbindung ? '' : 'none';
+  knopf.style.opacity = verbindung ? '' : .5;
+  const fehler = wartend.find(u => u.fehler);
+  document.getElementById('kkFotoInfo').textContent =
+    !verbindung ? 'Für Fotos zuerst oben über ☁️ mit Google Drive verbinden.'
+    : fehler ? `⚠️ Hochladen fehlgeschlagen (${fehler.fehler}). Neuer Versuch läuft automatisch, App bitte offen lassen.`
+    : wartend.length ? `⏳ ${wartend.length} Foto(s) werden hochgeladen …`
+    : fertig.length ? `${fertig.length} Foto(s) in Google Drive gespeichert.`
+    : 'Noch keine Fotos.';
+
+  const badge = f => f.lat !== '' && f.lat != null
+    ? `📍 ±${Math.round(+f.genauigkeit || 0)} m` : '⚠️ ohne Standort';
+  document.getElementById('kkFotos').innerHTML = [
+    ...fertig.map(f => `
+      <div class="foto" data-foto="${esc(f.id)}">
+        <img alt="" data-datei="${esc(f.dateiId)}">
+        <span class="badge">${badge(f)}</span>
+        <button class="weg" data-weg="${esc(f.id)}" title="Foto löschen">🗑</button>
+      </div>`),
+    ...wartend.map(u => `
+      <div class="foto wartet"><img alt="" src="${u.vorschau}"><span class="badge">${u.fehler ? '⚠️' : '⏳'} lädt hoch</span></div>`),
+  ].join('');
+  fotoBilderLaden();
+}
+
+// Vorschaubilder der hochgeladenen Fotos nacheinander aus Google Drive holen
+async function fotoBilderLaden() {
+  for (const img of document.querySelectorAll('#kkFotos img[data-datei]')) {
+    const dateiId = img.dataset.datei;
+    if (!fotoCache.has(dateiId)) {
+      try {
+        const { bild } = await api('fotoLaden', { dateiId });
+        fotoCache.set(dateiId, URL.createObjectURL(await (await fetch('data:image/jpeg;base64,' + bild)).blob()));
+      } catch (e) { console.warn('Foto konnte nicht geladen werden', dateiId, e); continue; }
+    }
+    if (img.isConnected) img.src = fotoCache.get(dateiId);
+  }
+}
+
+// Aktueller Standort { lat, lon, genauigkeit } oder null
+function standortHolen(timeout) {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, genauigkeit: Math.round(p.coords.accuracy) }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout, maximumAge: 0 },
+    );
+  });
+}
+
+// Die genauere von zwei Positionen (kleinere Ungenauigkeit in Metern)
+const genauere = (a, b) => !a ? b : !b ? a : (b.genauigkeit < a.genauigkeit ? b : a);
+
+async function bildVerkleinern(datei) {
+  const url = URL.createObjectURL(datei);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();  // Browser drehen das Bild dabei richtig herum (EXIF-Ausrichtung)
+    const faktor = Math.min(1, FOTO_MAX_PX / Math.max(img.naturalWidth, img.naturalHeight));
+    const leinwand = document.createElement('canvas');
+    leinwand.width = Math.round(img.naturalWidth * faktor);
+    leinwand.height = Math.round(img.naturalHeight * faktor);
+    leinwand.getContext('2d').drawImage(img, 0, 0, leinwand.width, leinwand.height);
+    return await new Promise((ok, fehler) => leinwand.toBlob(
+      b => b ? ok(b) : fehler(new Error('Bild konnte nicht umgewandelt werden.')), 'image/jpeg', FOTO_QUALITAET));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const blobZuBase64 = blob => new Promise((ok, fehler) => {
+  const leser = new FileReader();
+  leser.onload = () => ok(String(leser.result).split(',')[1]);
+  leser.onerror = () => fehler(leser.error);
+  leser.readAsDataURL(blob);
+});
+
+async function fotoAufgenommen(datei) {
+  const objektId = offenesObjekt;
+  const aufgenommenAm = new Date().toISOString();
+  // Standort: einmal beim Tippen auf den Knopf, einmal jetzt nach dem Auslösen – der genauere zählt
+  const vorher = standortBeimTippen || Promise.resolve(null);
+  standortBeimTippen = null;
+  const standort = Promise.all([vorher, standortHolen(10000)]).then(([a, b]) => genauere(a, b));
+  let blob;
+  try {
+    blob = await bildVerkleinern(datei);
+  } catch (e) {
+    document.getElementById('kkFotoInfo').textContent = '❌ ' + e.message;
+    return;
+  }
+  uploadSchlange.push({
+    tmpId: 'u' + Date.now(), objektId, blob, vorschau: URL.createObjectURL(blob), standort, aufgenommenAm, fehler: null,
+  });
+  if (offenesObjekt) karteikarteZeichnen();
+  uploadsAbarbeiten();
+}
+
+// Lädt die wartenden Fotos nacheinander hoch; bei Fehlern alle 10 s ein neuer Versuch
+async function uploadsAbarbeiten() {
+  if (uploadLaeuft) return;
+  uploadLaeuft = true;
+  while (uploadSchlange.length) {
+    const u = uploadSchlange[0];
+    try {
+      const pos = await u.standort;
+      const o = objektNachId(u.objektId);
+      const { foto } = await api('fotoHochladen', {
+        objektId: u.objektId,
+        ordnerName: o ? `${titel(o)} – ${adresseText(o)}` : u.objektId,
+        bild: await blobZuBase64(u.blob),
+        lat: pos?.lat ?? '', lon: pos?.lon ?? '', genauigkeit: pos?.genauigkeit ?? '',
+        aufgenommenAm: u.aufgenommenAm,
+      });
+      fotoCache.set(foto.dateiId, u.vorschau);
+      fotos.push(foto);
+      uploadSchlange.shift();
+    } catch (e) {
+      u.fehler = e.message;
+      if (offenesObjekt) karteikarteZeichnen();
+      await pause(10000);
+      continue;
+    }
+    if (offenesObjekt) karteikarteZeichnen();
+  }
+  uploadLaeuft = false;
+  listeZeichnen();
+}
+
+function notizSpeichern() {
+  clearTimeout(notizTimer);
+  const o = objektNachId(offenesObjekt);
+  const text = document.getElementById('kkNotizen').value;
+  if (!o || text === (o.notizen || '')) return;
+  o.notizen = text;
+  speichern([o.id]);
+  document.getElementById('kkNotizStand').textContent = verbindung ? '✓ Gespeichert' : '✓ In diesem Browser gespeichert';
+}
+
+document.getElementById('kkZurueck').addEventListener('click', () => {
+  if (history.state?.karteikarte) history.back();  // löst „popstate“ aus und schließt
+  else karteikarteSchliessen();
+});
+window.addEventListener('popstate', () => {
+  if (!document.getElementById('karteikarte').hidden) karteikarteSchliessen();
+});
+
+document.getElementById('kkStatus').addEventListener('click', () => {
+  const o = objektNachId(offenesObjekt);
+  if (!o) return;
+  if (o.status === 'bearbeitet') {
+    if (!confirm('Wieder auf „offen“ setzen?')) return;
+    o.status = 'offen';
+    o.bearbeitetAm = '';
+  } else {
+    o.status = 'bearbeitet';
+    o.bearbeitetAm = new Date().toISOString();
+  }
+  notizSpeichern();
+  speichern([o.id]);
+  karteikarteZeichnen();
+});
+
+document.getElementById('kkNotizen').addEventListener('input', () => {
+  document.getElementById('kkNotizStand').textContent = '…';
+  clearTimeout(notizTimer);
+  notizTimer = setTimeout(notizSpeichern, 1000);
+});
+document.getElementById('kkNotizen').addEventListener('blur', notizSpeichern);
+
+document.getElementById('kkFotoKnopf').addEventListener('click', () => {
+  standortBeimTippen = standortHolen(15000);
+});
+document.getElementById('kamera').addEventListener('change', e => {
+  const datei = e.target.files[0];
+  e.target.value = '';
+  if (datei) fotoAufgenommen(datei);
+});
+
+document.getElementById('kkFotos').addEventListener('click', async e => {
+  const knopf = e.target.closest('[data-weg]');
+  if (!knopf) return;
+  if (!confirm('Dieses Foto löschen?\n\nEs kommt in den Papierkorb von Google Drive (30 Tage wiederherstellbar).')) return;
+  knopf.disabled = true;
+  try {
+    await api('fotoLoeschen', { id: knopf.dataset.weg });
+    fotos = fotos.filter(f => f.id !== knopf.dataset.weg);
+    karteikarteZeichnen();
+  } catch (err) {
+    knopf.disabled = false;
+    alert('Foto konnte nicht gelöscht werden: ' + err.message);
+  }
+});
+
+// Warnung beim Schließen, solange Fotos noch nicht hochgeladen sind
+window.addEventListener('beforeunload', e => {
+  if (uploadSchlange.length) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// „Karteikarte öffnen“-Knopf in den Karten-Popups.
+// „true“ = vor Leaflet reagieren, denn Leaflet lässt Klicks in Popups nicht weiter nach oben durch.
+document.getElementById('karte').addEventListener('click', e => {
+  const knopf = e.target.closest('[data-oeffnen]');
+  if (knopf) karteikarteOeffnen(knopf.dataset.oeffnen);
+}, true);
+
 // ---------- Google Drive (über das Google-Skript in apps-script/Code.gs) ----------
 async function api(aktion, daten = {}) {
   if (!verbindung) throw new Error('Nicht mit Google Drive verbunden.');
   // Bewusst ohne eigene Header: so fragt der Browser nicht vorab nach (CORS), das kann Google nicht beantworten
-  const antwort = await fetch(verbindung.url, {
-    method: 'POST',
-    body: JSON.stringify({ code: verbindung.code, aktion, ...daten }),
-  });
+  let antwort;
+  try {
+    antwort = await fetch(verbindung.url, {
+      method: 'POST',
+      body: JSON.stringify({ code: verbindung.code, aktion, ...daten }),
+    });
+  } catch {
+    throw new Error('Keine Internetverbindung.');
+  }
   if (!antwort.ok) throw new Error(`Google antwortet mit Fehler ${antwort.status}.`);
   let ergebnis;
   try { ergebnis = await antwort.json(); }
