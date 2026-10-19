@@ -232,6 +232,33 @@
     </div>
   </section>
 
+  <section class="panel" id="neuPanel" hidden>
+    <h2>＋ Adresse hinzufügen</h2>
+    <form id="neuForm" autocomplete="off">
+      <label class="feld">Unternehmen
+        <input type="text" id="neuUnternehmen">
+      </label>
+      <label class="feld">Objektname
+        <input type="text" id="neuObjektname">
+      </label>
+      <label class="feld">Straße und Hausnummer *
+        <input type="text" id="neuStrasse" required placeholder="z. B. Marienplatz 1">
+      </label>
+      <div class="zeile">
+        <label class="feld" style="flex:0 0 110px;min-width:0">PLZ *
+          <input type="text" id="neuPlz" required inputmode="numeric" maxlength="5" pattern="\d{5}" placeholder="80331">
+        </label>
+        <label class="feld">Ort *
+          <input type="text" id="neuOrt" required placeholder="München">
+        </label>
+      </div>
+      <div class="knoepfe">
+        <button class="btn" type="submit" id="neuSpeichern">Hinzufügen</button>
+        <button class="btn zweit" type="button" id="neuAbbrechen">Abbrechen</button>
+      </div>
+    </form>
+  </section>
+
   <section class="panel" id="routePanel" hidden>
     <h2>🚗 Tagesroute</h2>
     <div class="zeile">
@@ -285,6 +312,8 @@
       <textarea id="kkNotizen" rows="7" placeholder="Notizen zu dieser Immobilie …"></textarea>
       <div id="kkNotizStand" class="gedimmt"></div>
     </section>
+
+    <button class="btn zweit" id="kkEntfernen" style="color:var(--fehler)">🗑 Adresse entfernen</button>
   </div>
 </div>
 
@@ -312,7 +341,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-19.1';
+const APP_VERSION = '2026-10-19.2';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -380,12 +409,14 @@ function ausstehendMerken() {
   merken(AUSSTEHEND_KEY, { speichern: [...ausstehend.speichern], loeschen: [...ausstehend.loeschen] });
 }
 
-// Feste ID aus der Adresse: Nach „Liste leeren“ und erneutem Import passen Fotos wieder zum Objekt
-function idAusAdresse(text) {
+// Feste ID aus der Adresse: Nach „Liste leeren“ und erneutem Import passen Fotos wieder zum Objekt.
+// Präfix „o“ = aus Excel, „m“ = von Hand eingegeben (bleibt beim Excel-Import erhalten).
+function idAusAdresse(text, praefix = 'o') {
   let h = 0x811c9dc5;
   for (const zeichen of text) { h ^= zeichen.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
-  return 'o' + h.toString(36);
+  return praefix + h.toString(36);
 }
+const istManuell = o => String(o.id).startsWith('m');
 
 // Tagesroute: { start: { text, lat, lon }, ids: [Objekt-IDs in Reihenfolge], rund: bool, km }
 let route = (() => {
@@ -463,7 +494,8 @@ function listeZeichnen() {
   const inhalt = document.getElementById('inhalt');
   if (!objekte.length) {
     inhalt.innerHTML = `<div class="leer">Noch keine Adressen.<br>Tippe oben auf <b>Excel laden</b>.<br><br>
-      Die Datei braucht die Spalten <b>Strasse_hausnummer</b>, <b>PLZ</b> und <b>Ort</b>.</div>`;
+      Die Datei braucht die Spalten <b>Strasse_hausnummer</b>, <b>PLZ</b> und <b>Ort</b>.<br><br>
+      <button class="btn zweit" data-neu>＋ Adresse von Hand eingeben</button></div>`;
     return;
   }
   const anzahl = objekte.length;
@@ -474,6 +506,7 @@ function listeZeichnen() {
   const sortiert = [...objekte].sort((a, b) => (b.geoStatus === 'fehlt') - (a.geoStatus === 'fehlt'));
 
   inhalt.innerHTML = `
+    <div style="margin-bottom:10px"><button class="btn zweit" data-neu>＋ Adresse hinzufügen</button></div>
     <div class="zaehler">
       <span>${anzahl} Adressen</span>
       <span>✅ ${erledigt} bearbeitet</span>
@@ -485,14 +518,16 @@ function listeZeichnen() {
         <li data-id="${o.id}">
           <span class="punkt ${o.geoStatus === 'fehlt' ? 'fehler' : o.status}"></span>
           <span class="adr"><b>${esc(titel(o))}</b>${unterzeilen(o).map(z => `<small>${esc(z)}</small>`).join('')}${infoZeile(o)}
-            ${o.geoStatus === 'fehlt' ? '<span class="hinweis">Adresse auf der Karte nicht gefunden. Bitte Schreibweise in der Excel prüfen.</span>' : ''}
+            ${o.geoStatus === 'fehlt' ? `<span class="hinweis">Adresse auf der Karte nicht gefunden. ${istManuell(o)
+              ? 'Bitte in der Karteikarte entfernen und mit korrigierter Schreibweise neu eingeben.'
+              : 'Bitte Schreibweise in der Excel prüfen.'}</span>` : ''}
           </span>
         </li>`).join('')}
     </ul>
     <div style="margin-top:14px"><button class="btn zweit" id="leeren">Liste leeren</button></div>`;
 
   document.getElementById('leeren').addEventListener('click', listeLeeren);
-  inhalt.querySelectorAll('li').forEach(li =>
+  inhalt.querySelectorAll('li[data-id]').forEach(li =>
     li.addEventListener('click', () => karteikarteOeffnen(li.dataset.id)));
 }
 
@@ -570,6 +605,9 @@ async function importieren(arrayBuffer) {
       ? { ...bekannt, id, unternehmen: z.unternehmen, objektname: z.objektname }
       : { id, ...z, lat: null, lon: null, geoStatus: 'offen', status: 'offen', notizen: '' };
   });
+  // Von Hand eingegebene Adressen bleiben, auch wenn sie nicht in der Excel stehen
+  const drin = new Set(objekte.map(o => o.id));
+  objekte.push(...[...alt.values()].filter(o => istManuell(o) && !drin.has(o.id)));
   // Adressen, die nicht mehr in der Excel stehen, auch in der Google-Tabelle löschen
   const bleibt = new Set(objekte.map(o => o.id));
   loeschenVormerken([...alt.values()].map(o => o.id).filter(id => !bleibt.has(id)));
@@ -660,6 +698,58 @@ function listeLeeren() {
   karte.setView([START_ANSICHT.lat, START_ANSICHT.lon], START_ANSICHT.zoom);
   status('Liste geleert.');
 }
+
+// ---------- Adresse von Hand eingeben ----------
+function neuPanelZeigen(zeigen) {
+  const panel = document.getElementById('neuPanel');
+  panel.hidden = !zeigen;
+  if (!zeigen) return;
+  document.getElementById('neuForm').reset();
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => document.getElementById('neuStrasse').focus(), 300);
+}
+
+// Knöpfe „＋ Adresse hinzufügen“ werden in listeZeichnen() erzeugt
+document.getElementById('inhalt').addEventListener('click', e => {
+  if (e.target.closest('[data-neu]')) neuPanelZeigen(true);
+});
+document.getElementById('neuAbbrechen').addEventListener('click', () => neuPanelZeigen(false));
+
+document.getElementById('neuForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const wert = id => document.getElementById(id).value.trim();
+  const z = {
+    unternehmen: wert('neuUnternehmen'), objektname: wert('neuObjektname'),
+    strasse: wert('neuStrasse'), plz: wert('neuPlz'), ort: wert('neuOrt'),
+  };
+  if (!/^\d{5}$/.test(z.plz)) { status('❌ Die PLZ muss genau 5 Ziffern haben.'); return; }
+
+  const vorhanden = objekte.find(o => schluessel(o) === schluessel(z));
+  if (vorhanden) {
+    neuPanelZeigen(false);
+    status(`ℹ️ Diese Adresse ist schon in der Liste („${titel(vorhanden)}“).`);
+    karteikarteOeffnen(vorhanden.id);
+    return;
+  }
+
+  let id = idAusAdresse(schluessel(z), 'm');
+  while (objekte.some(o => o.id === id)) id += 'x';
+  const o = { id, ...z, lat: null, lon: null, geoStatus: 'offen', status: 'offen', notizen: '' };
+  objekte.push(o);
+  speichern([id]);
+  neuPanelZeigen(false);
+  allesZeichnen(false);
+
+  await koordinatenSuchen();
+  if (o.geoStatus === 'ok' && marker[id]) {
+    status(`✅ „${titel(o)}“ hinzugefügt und auf der Karte gefunden.`);
+    karte.setView(marker[id].getLatLng(), 16);
+    marker[id].openPopup();
+    document.getElementById('karte').scrollIntoView({ behavior: 'smooth' });
+  } else if (o.geoStatus === 'fehlt') {
+    status(`⚠️ „${titel(o)}“ hinzugefügt, aber auf der Karte nicht gefunden. Bitte Schreibweise prüfen (rot markiert).`);
+  }
+});
 
 // ---------- Tagesroute ----------
 // Entfernung in km (Luftlinie)
@@ -1232,6 +1322,24 @@ window.addEventListener('popstate', () => {
     if (history.state?.karteikarte) return;
   }
   if (!history.state?.karteikarte && !document.getElementById('karteikarte').hidden) karteikarteSchliessen();
+});
+
+// Eine einzelne Adresse entfernen (Fotos bleiben im Google Drive)
+document.getElementById('kkEntfernen').addEventListener('click', () => {
+  const o = objektNachId(offenesObjekt);
+  if (!o) return;
+  const anzahlFotos = fotosVon(o.id).length;
+  const frage = `Adresse „${titel(o)}“ aus der Liste entfernen?` +
+    (anzahlFotos ? `\n\nIhre ${anzahlFotos} Foto(s) bleiben im Google Drive erhalten.` : '') +
+    (istManuell(o) ? '' : '\n\nBeim nächsten Laden der Excel-Datei kommt sie wieder.');
+  if (!confirm(frage)) return;
+  clearTimeout(notizTimer);
+  loeschenVormerken([o.id]);
+  objekte = objekte.filter(x => x.id !== o.id);
+  speichern([]);
+  status(`🗑 „${titel(o)}“ entfernt.`);
+  if (history.state?.karteikarte) history.back();  // schließt die Karteikarte
+  else karteikarteSchliessen();
 });
 
 document.getElementById('kkStatus').addEventListener('click', () => {
