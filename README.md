@@ -50,7 +50,15 @@ Mit **Liste leeren** (unter der Adressliste) werden alle Adressen gelöscht, mit
 
 Die App sucht die Reihenfolge mit der kürzesten **Fahrzeit mit dem Auto** über alle **offenen** Adressen und nimmt davon die gewünschte Anzahl. So ist das Tagesgebiet zusammenhängend, und am nächsten Tag geht es dort weiter. Die Fahrzeiten kommen vom kostenlosen Routendienst OSRM (OpenStreetMap-Straßendaten, ohne Verkehr). Ist er nicht erreichbar, rechnet die App ersatzweise mit Luftlinie und zeigt einen Hinweis.
 
+Auf der Karte ist die Route als Linie entlang der Straßen eingezeichnet (gestrichelte gerade Linien nur, wenn der Routendienst nicht erreichbar ist).
+
 Die Route wird in Etappen zu je 10 Adressen aufgeteilt. **In Google Maps öffnen** startet die Navigation ab dem aktuellen Standort. Dafür muss die **Google-Maps-App** auf dem iPhone installiert sein (im Safari-Browser erlaubt Google nur 3 Zwischenstopps). Bereits bearbeitete Adressen werden in den Etappen übersprungen.
+
+### Karte oder Satellit
+
+Beide Karten haben oben rechts einen Umschalter (Ebenen-Symbol): **Karte** oder **Satellit** (Luftbild mit Straßen- und Ortsnamen). Die Übersicht startet mit der Karte, die Karteikarte mit dem Satellitenbild, damit man das Gebäude sieht. Die App merkt sich die zuletzt gewählte Ansicht.
+
+Luftbilder: © Esri, Maxar, Earthstar Geographics. Für eine dauerhafte gewerbliche Nutzung in größerem Umfang verlangt Esri ein (kostenloses) Entwicklerkonto mit Zugangsschlüssel.
 
 ### Vor Ort: Karteikarte
 

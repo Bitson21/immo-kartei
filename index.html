@@ -38,7 +38,7 @@
     font-size: 16px;
   }
   header {
-    position: sticky; top: 0; z-index: 1000;
+    position: sticky; top: 0; z-index: 1100;  /* über den Leaflet-Knöpfen (1000) */
     background: var(--panel);
     border-bottom: 1px solid var(--line);
     padding: 10px 16px;
@@ -342,7 +342,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-19.3';
+const APP_VERSION = '2026-10-19.4';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -354,6 +354,8 @@ const ETAPPE_STOPPS = 10;
 // Fahrzeiten kommen vom kostenlosen OSRM-Server (OpenStreetMap-Straßendaten), max. 100 Punkte pro Anfrage
 const OSRM_URL = 'https://router.project-osrm.org/table/v1/driving/';
 const OSRM_MAX_PUNKTE = 100;
+// Straßenverlauf der Tagesroute (gleicher Dienst, „route“ statt „table“)
+const OSRM_ROUTE_URL = 'https://router.project-osrm.org/route/v1/driving/';
 // Fotos werden vor dem Hochladen verkleinert (längste Seite in Pixeln, JPEG-Qualität)
 const FOTO_MAX_PX = 2000;
 const FOTO_QUALITAET = 0.8;
@@ -440,11 +442,29 @@ const unterzeilen = o => [
 ].filter(Boolean);
 
 // ---------- Karte ----------
+// Hintergründe „Karte“ (OpenStreetMap) und „Satellit“ (Esri-Luftbilder mit Straßen- und Ortsnamen)
+// mit Umschalter oben rechts. Die Wahl wird pro Karte unter „merkKey“ gemerkt.
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+function kartenHintergrund(karteObj, merkKey, standard) {
+  const esri = (dienst, extra = {}) => L.tileLayer(ESRI + dienst + '/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, ...extra });
+  const ebenen = {
+    'Karte': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 20, maxNativeZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }),
+    'Satellit': L.layerGroup([
+      esri('World_Imagery', { attribution: 'Luftbild &copy; Esri, Maxar, Earthstar Geographics' }),
+      esri('Reference/World_Transportation'),
+      esri('Reference/World_Boundaries_and_Places'),
+    ]),
+  };
+  (ebenen[lesen(merkKey, standard)] || ebenen[standard]).addTo(karteObj);
+  L.control.layers(ebenen, null, { position: 'topright' }).addTo(karteObj);
+  karteObj.on('baselayerchange', e => merken(merkKey, e.name));
+}
+
 const karte = L.map('karte').setView([START_ANSICHT.lat, START_ANSICHT.lon], START_ANSICHT.zoom);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-}).addTo(karte);
+kartenHintergrund(karte, 'immoKartei.hintergrund', 'Karte');
 const markerEbene = L.layerGroup().addTo(karte);
 const marker = {};  // id -> Leaflet-Marker
 
@@ -481,9 +501,14 @@ function karteZeichnen(zoomen) {
     const s = route.start;
     L.marker([s.lat, s.lon], { icon: nummerIcon('S', 'start'), zIndexOffset: 2000 })
       .bindPopup(`<b>Start</b><br>${esc(s.text)}`).addTo(markerEbene);
-    const linie = [[s.lat, s.lon], ...routeObjekte().map(o => [o.lat, o.lon])];
-    if (route.rund) linie.push([s.lat, s.lon]);
-    L.polyline(linie, { color: '#1f6feb', weight: 3, opacity: .7, dashArray: '6 6' }).addTo(markerEbene);
+    if (route.linie?.length) {
+      // Genauer Straßenverlauf
+      L.polyline(route.linie, { color: '#1f6feb', weight: 4, opacity: .75 }).addTo(markerEbene);
+    } else {
+      // Ersatz: gerade Linien zwischen den Stopps
+      L.polyline(routePfad(), { color: '#1f6feb', weight: 3, opacity: .7, dashArray: '6 6' }).addTo(markerEbene);
+      strassenverlaufNachholen();
+    }
     punkte.push([s.lat, s.lon]);
   }
 
@@ -772,6 +797,39 @@ async function fahrMatrix(punkte) {
   // Nicht erreichbare Verbindungen (null) bekommen einen riesigen Wert, damit sie gemieden werden
   const fix = tabelle => tabelle.map(zeile => zeile.map(w => w ?? 1e9));
   return { dauer: fix(daten.durations), meter: fix(daten.distances) };
+}
+
+// Start, Stopps (und bei Rundtour wieder Start) als [lat, lon]-Liste
+function routePfad() {
+  const s = route.start;
+  return [[s.lat, s.lon], ...routeObjekte().map(o => [o.lat, o.lon]), ...(route.rund ? [[s.lat, s.lon]] : [])];
+}
+
+// Genauer Straßenverlauf durch alle Punkte als [lat, lon]-Liste
+async function strassenverlauf(pfad) {
+  const koordinaten = pfad.map(([lat, lon]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join(';');
+  const antwort = await fetch(OSRM_ROUTE_URL + koordinaten + '?overview=full&geometries=geojson');
+  if (!antwort.ok) throw new Error('HTTP ' + antwort.status);
+  const daten = await antwort.json();
+  if (daten.code !== 'Ok') throw new Error(daten.code);
+  // 5 Nachkommastellen ≈ 1 m genau, hält den Speicher klein
+  return daten.routes[0].geometry.coordinates.map(([lon, lat]) => [+lat.toFixed(5), +lon.toFixed(5)]);
+}
+
+// Für Routen ohne gespeicherten Straßenverlauf (ältere oder bei Ausfall) einmal nachladen
+let verlaufVersuchtFuer = null;
+function strassenverlaufNachholen() {
+  if (!route || route.linie?.length || verlaufVersuchtFuer === route) return;
+  verlaufVersuchtFuer = route;
+  const fuer = route;
+  strassenverlauf(routePfad())
+    .then(linie => {
+      if (route !== fuer) return;  // inzwischen neu berechnet
+      route.linie = linie;
+      routeSpeichern();
+      karteZeichnen(false);
+    })
+    .catch(e => console.warn('Straßenverlauf nicht verfügbar', e));
 }
 
 // Möglichst kurze Reihenfolge ab „start“: erst immer zum nächsten Punkt (Nächster Nachbar),
@@ -1097,10 +1155,8 @@ function fotoKarteZeichnen(o, liste) {
 
   if (!kkKarte) {
     kkKarte = L.map(box, { scrollWheelZoom: false });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(kkKarte);
+    // In der Karteikarte zuerst Satellit, damit man das Gebäude sieht
+    kartenHintergrund(kkKarte, 'immoKartei.hintergrundKarteikarte', 'Satellit');
     kkEbene = L.layerGroup().addTo(kkKarte);
   }
   kkKarte.invalidateSize();  // Karte war versteckt, Größe neu messen
@@ -1133,7 +1189,7 @@ function fotoKarteZeichnen(o, liste) {
   if (stand !== kkKarteStand) {
     kkKarteStand = stand;
     if (punkte.length === 1) kkKarte.setView(punkte[0], 18);
-    else kkKarte.fitBounds(punkte, { padding: [30, 30], maxZoom: 19 });
+    else kkKarte.fitBounds(punkte, { padding: [30, 30], maxZoom: 18 });  // 19 ist im Luftbild oft unscharf
   }
 }
 
