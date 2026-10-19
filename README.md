@@ -8,7 +8,7 @@ Web-App zum Besichtigen von Immobilien: Adressen aus Excel laden, Route planen, 
 - ✅ Schritt 2: Tagesroute mit Google Maps
 - ✅ Schritt 3: Speichern in Google Drive
 - ✅ Schritt 4: Fotos mit Standort, Notizen, „bearbeitet“
-- ⏳ Schritt 5: Karteikarte mit Foto-Karte
+- ✅ Schritt 5: Karteikarte mit Foto-Karte
 - ✅ Schritt 6: Online stellen (vor Schritt 5 gezogen, damit Kamera und GPS am iPhone testbar sind)
 
 ## Benutzen
@@ -54,6 +54,12 @@ Eine Immobilie in der Liste, in der Tagesroute oder im Karten-Popup (**Karteikar
 - **Als bearbeitet markieren**: Punkt wird grün, die Adresse fällt aus den nächsten Tagesrouten. Erneut tippen setzt sie wieder auf „offen“.
 - **🚗 Hin navigieren** öffnet Google Maps mit dieser Adresse.
 - **← Zurück** (oder am iPhone vom linken Rand wischen) schließt die Karteikarte.
+
+**Foto-Karte:** Oben in der Karteikarte zeigt eine kleine Karte das Haus (🏠) und jedes Foto als orangen, nummerierten Punkt an der Stelle, wo es aufgenommen wurde. Die Nummern passen zu den Fotos darunter. Fotos ohne Standort stehen nur in der Foto-Reihe.
+
+- Punkt antippen: kleine Vorschau mit Uhrzeit und Genauigkeit.
+- Vorschau oder ein Foto in der Reihe antippen: Foto im **Vollbild**. Mit **‹ ›**, Wischen oder den Pfeiltasten blättern. **In Google Drive öffnen** zeigt die Originaldatei (zum Herunterladen oder Teilen).
+- **✕ Schließen** oder Zurück-Wischen schließt das Vollbild, das zuletzt angesehene Foto wird auf der Karte markiert.
 
 Fotos gehen nur über die Kamera in der App, nicht aus der Galerie: Das iPhone entfernt bei Galeriefotos oft den Aufnahmeort. Für den Standort muss Safari die Ortung erlauben (Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites → „Beim Verwenden der App“).
 
