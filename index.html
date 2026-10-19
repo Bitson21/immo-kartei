@@ -87,7 +87,7 @@
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
   .panel h2 { margin: 0 0 10px; font-size: 1.1rem; }
   .feld { display: block; margin-bottom: 10px; font-size: .9rem; color: var(--muted); }
-  .feld input[type=text], .feld input[type=number], .feld input[type=password] {
+  .feld input[type=text], .feld input[type=number], .feld input[type=password], .feld select {
     display: block; width: 100%; margin-top: 4px;
     font-size: 1rem; padding: 9px 10px;
     border: 1px solid var(--line); border-radius: 8px; color: var(--text);
@@ -269,9 +269,12 @@
     </div>
     <div class="zeile">
       <label class="feld">Stopps heute
-        <input type="number" id="anzahl" min="1" value="17" inputmode="numeric">
+        <select id="anzahl">
+          <option value="" selected disabled>Bitte wählen …</option>
+        </select>
       </label>
     </div>
+    <p class="gedimmt" id="anzahlHinweis" style="margin:-4px 0 10px"></p>
     <label class="haken"><input type="checkbox" id="rund"> Am Ende zurück zum Startpunkt</label>
     <div class="knoepfe">
       <button class="btn" id="routeBtn">Route berechnen</button>
@@ -342,7 +345,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-19.4';
+const APP_VERSION = '2026-10-19.5';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -351,6 +354,8 @@ const START_ANSICHT = { lat: 51.16, lon: 10.45, zoom: 6 };  // Deutschland
 const ROUTE_KEY = 'immoKartei.route';
 // Google-Maps-App erlaubt 9 Zwischenstopps + Ziel pro Link (Safari ohne App nur 3)
 const ETAPPE_STOPPS = 10;
+// Auswahl „Stopps heute“ im Dropdown: 1 bis STOPPS_MAX
+const STOPPS_MAX = 45;
 // Fahrzeiten kommen vom kostenlosen OSRM-Server (OpenStreetMap-Straßendaten), max. 100 Punkte pro Anfrage
 const OSRM_URL = 'https://router.project-osrm.org/table/v1/driving/';
 const OSRM_MAX_PUNKTE = 100;
@@ -907,7 +912,12 @@ async function routeBerechnen() {
   const knopf = document.getElementById('routeBtn');
   const offen = objekte.filter(o => o.geoStatus === 'ok' && o.status === 'offen');
   if (!offen.length) { status('✅ Alle Adressen sind bereits bearbeitet.'); return; }
-  const anzahl = Math.max(1, parseInt(document.getElementById('anzahl').value, 10) || 1);
+  const anzahl = parseInt(document.getElementById('anzahl').value, 10);
+  if (!anzahl) {
+    status('❌ Bitte bei „Stopps heute“ auswählen, wie viele Adressen du heute anfahren willst.');
+    document.getElementById('anzahl').focus();
+    return;
+  }
   const rund = document.getElementById('rund').checked;
 
   knopf.disabled = true;
@@ -1736,6 +1746,12 @@ document.addEventListener('visibilitychange', () => {
 setInterval(aufUpdatePruefen, 30 * 60 * 1000);
 
 // ---------- Start ----------
+// Dropdown „Stopps heute“ füllen und erklären, wie die Route auf Google-Maps-Links verteilt wird
+document.getElementById('anzahl').insertAdjacentHTML('beforeend',
+  Array.from({ length: STOPPS_MAX }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join(''));
+document.getElementById('anzahlHinweis').textContent =
+  `Max. ${STOPPS_MAX}. Ein Google-Maps-Link fasst bis zu ${ETAPPE_STOPPS} Stopps, ` +
+  `bei mehr teilt die App die Route automatisch in Etappen (z. B. 17 Stopps = 2 Etappen).`;
 if (route) {
   document.getElementById('startText').value = route.start.text === 'Mein Standort' ? '' : route.start.text;
   document.getElementById('rund').checked = route.rund;

@@ -44,7 +44,7 @@ Mit **Liste leeren** (unter der Adressliste) werden alle Adressen gelöscht, mit
 ### Tagesroute
 
 1. Startpunkt eingeben (z. B. Hotel-Adresse) oder **📍 Mein Standort** tippen.
-2. Eintragen, wie viele **Stopps heute** geschafft werden sollen.
+2. Bei **Stopps heute** im Auswahlfeld wählen, wie viele Adressen angefahren werden sollen (1 bis 45).
 3. Optional **Am Ende zurück zum Startpunkt** anhaken.
 4. **Route berechnen** tippen.
 
