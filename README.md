@@ -29,7 +29,9 @@ Erstes Tabellenblatt, erste Zeile sind die Spaltenüberschriften:
 
 `Strasse_hausnummer`, `PLZ` und `Ort` sind Pflicht, `Unternehmen` und `Objektname` sind freiwillig. Jede Zeile mit Inhalt wird als Adresse übernommen, also nur die gewünschten Adressen in der Datei lassen.
 
-Rot markierte Adressen wurden nicht gefunden. Dann die Schreibweise in der Excel prüfen und die Datei erneut laden. Bereits gefundene Adressen werden dabei nicht noch einmal gesucht.
+Rot markierte Adressen wurden nicht gefunden. Dann die Schreibweise in der Karteikarte über **✏️ Bearbeiten** korrigieren.
+
+**Excel erneut laden:** Die App ist führend. Neue Adressen kommen dazu, bei bekannten Adressen werden nur leere Felder aus der Excel ergänzt. In der App bearbeitete Daten (auch geänderte Adressen), Notizen, Fotos und Status bleiben erhalten. Adressen, die nicht mehr in der Excel stehen, werden entfernt (außer von Hand eingegebene).
 
 ### Adresse von Hand eingeben
 
@@ -68,6 +70,7 @@ Eine Immobilie in der Liste, in der Tagesroute oder im Karten-Popup (**Karteikar
 - **🗑** auf einem Foto löscht es (Drive-Papierkorb, 30 Tage wiederherstellbar).
 - **Notizen** werden beim Tippen automatisch gespeichert.
 - **Als bearbeitet markieren**: Punkt wird grün, die Adresse fällt aus den nächsten Tagesrouten. Erneut tippen setzt sie wieder auf „offen“.
+- **✏️ Bearbeiten** (unter der Adresse) ändert Unternehmen, Objektname und Adresse. Bei geänderter Adresse sucht die App sie neu auf der Karte. Fotos, Notizen und Status bleiben.
 - **🚗 Hin navigieren** öffnet Google Maps mit dieser Adresse.
 - **← Zurück** (oder am iPhone vom linken Rand wischen) schließt die Karteikarte.
 
