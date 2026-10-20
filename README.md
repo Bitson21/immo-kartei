@@ -46,11 +46,11 @@ Mit **Liste leeren** (unter der Adressliste) werden alle Adressen gelöscht, mit
 ### Tagesroute
 
 1. Startpunkt eingeben (z. B. Hotel-Adresse) oder **📍 Mein Standort** tippen.
-2. Bei **Stopps heute** im Auswahlfeld wählen, wie viele Adressen angefahren werden sollen (1 bis 45).
+2. Bei **Stopps heute** im Auswahlfeld wählen, wie viele Adressen angefahren werden sollen (1 bis Anzahl aller Adressen).
 3. Optional **Am Ende zurück zum Startpunkt** anhaken.
 4. **Route berechnen** tippen.
 
-Die App sucht die Reihenfolge mit der kürzesten **Fahrzeit mit dem Auto** über alle **offenen** Adressen und nimmt davon die gewünschte Anzahl. So ist das Tagesgebiet zusammenhängend, und am nächsten Tag geht es dort weiter. Die Fahrzeiten kommen vom kostenlosen Routendienst OSRM (OpenStreetMap-Straßendaten, ohne Verkehr). Ist er nicht erreichbar, rechnet die App ersatzweise mit Luftlinie und zeigt einen Hinweis.
+Die App sucht die Reihenfolge mit der kürzesten **Fahrzeit mit dem Auto** über alle **offenen** Adressen und nimmt davon die gewünschte Anzahl. So ist das Tagesgebiet zusammenhängend, und am nächsten Tag geht es dort weiter. Die Fahrzeiten kommen vom kostenlosen Routendienst OSRM (OpenStreetMap-Straßendaten, ohne Verkehr). Ist er nicht erreichbar, rechnet die App ersatzweise mit Luftlinie und zeigt einen Hinweis. Bei mehr als 100 Adressen fragt die App die Fahrzeiten in mehreren Teilen ab (Anzeige „Teil 1 von 3“ usw.), das dauert ein paar Sekunden länger.
 
 Auf der Karte ist die Route als Linie entlang der Straßen eingezeichnet (gestrichelte gerade Linien nur, wenn der Routendienst nicht erreichbar ist).
 
