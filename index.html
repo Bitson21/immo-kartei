@@ -300,6 +300,24 @@
   <div class="kk-inhalt">
     <h2 id="kkTitel"></h2>
     <div id="kkUnterzeilen" class="gedimmt"></div>
+    <button class="btn zweit popup-btn" id="kkBearbeiten" style="margin-top:8px">✏️ Bearbeiten</button>
+
+    <form class="panel" id="kkForm" autocomplete="off" hidden style="margin-top:12px">
+      <h3>✏️ Daten bearbeiten</h3>
+      <label class="feld">Unternehmen <input type="text" id="kkfUnternehmen"></label>
+      <label class="feld">Objektname <input type="text" id="kkfObjektname"></label>
+      <label class="feld">Straße und Hausnummer * <input type="text" id="kkfStrasse" required></label>
+      <div class="zeile">
+        <label class="feld" style="flex:0 0 110px;min-width:0">PLZ *
+          <input type="text" id="kkfPlz" required inputmode="numeric" maxlength="5" pattern="\d{5}">
+        </label>
+        <label class="feld">Ort * <input type="text" id="kkfOrt" required></label>
+      </div>
+      <div class="knoepfe">
+        <button class="btn" type="submit">Speichern</button>
+        <button class="btn zweit" type="button" id="kkfAbbrechen">Abbrechen</button>
+      </div>
+    </form>
     <div class="knoepfe" style="margin:14px 0">
       <button class="btn" id="kkStatus"></button>
       <a class="btn zweit" id="kkNavi" target="_blank" rel="noopener">🚗 Hin navigieren</a>
@@ -350,7 +368,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-20.1';
+const APP_VERSION = '2026-10-20.2';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -636,17 +654,19 @@ async function importieren(arrayBuffer) {
     return;
   }
 
-  // Schon bekannte Adressen behalten ihre Daten (Koordinaten, Status),
-  // Unternehmen und Objektname kommen immer frisch aus der Excel
+  // Die App ist führend: Bekannte Adressen behalten alle Daten (auch in der App bearbeitete),
+  // die Excel füllt nur leere Felder auf. Gefunden wird über die Adresse oder – falls die Adresse
+  // in der App geändert wurde – über die ID, die einmal aus der Excel-Adresse entstanden ist.
   const alt = new Map(objekte.map(o => [schluessel(o), o]));
+  const altNachId = new Map(objekte.map(o => [o.id, o]));
   const vergeben = new Set();
   objekte = neu.map(z => {
-    const bekannt = alt.get(schluessel(z));
+    const bekannt = alt.get(schluessel(z)) || altNachId.get(idAusAdresse(schluessel(z)));
     let id = bekannt?.id || idAusAdresse(schluessel(z));
     while (vergeben.has(id)) id += 'x';  // dieselbe Adresse doppelt in der Excel
     vergeben.add(id);
     return bekannt
-      ? { ...bekannt, id, unternehmen: z.unternehmen, objektname: z.objektname }
+      ? { ...bekannt, id, unternehmen: bekannt.unternehmen || z.unternehmen, objektname: bekannt.objektname || z.objektname }
       : { id, ...z, lat: null, lon: null, geoStatus: 'offen', status: 'offen', notizen: '' };
   });
   // Von Hand eingegebene Adressen bleiben, auch wenn sie nicht in der Excel stehen
@@ -717,6 +737,7 @@ async function koordinatenSuchen() {
     : objekte.length ? `Fertig. Alle ${objekte.length} Adressen sind auf der Karte.` : ''
   );
   allesZeichnen(true);
+  if (offenesObjekt) karteikarteZeichnen();  // z. B. nach dem Bearbeiten einer Adresse
 }
 
 document.getElementById('datei').addEventListener('change', async e => {
@@ -1095,6 +1116,7 @@ function karteikarteOeffnen(id) {
   document.body.style.overflow = 'hidden';
   document.getElementById('kkNotizen').value = objektNachId(id).notizen || '';
   document.getElementById('kkNotizStand').textContent = '';
+  bearbeitenZeigen(false);
   karteikarteZeichnen();
   document.getElementById('karteikarte').scrollTop = 0;
   standortStarten();
@@ -1230,7 +1252,7 @@ function fotoKarteZeichnen(o, liste) {
     return m;
   });
 
-  const stand = o.id + ':' + liste.map(f => f.id).join(',');
+  const stand = [o.id, o.lat, o.lon, ...liste.map(f => f.id)].join(',');  // neu zoomen, wenn die Adresse verschoben wurde
   if (stand !== kkKarteStand) {
     kkKarteStand = stand;
     if (punkte.length === 1) kkKarte.setView(punkte[0], 18);
@@ -1490,6 +1512,49 @@ window.addEventListener('popstate', () => {
   if (!history.state?.karteikarte && !document.getElementById('karteikarte').hidden) karteikarteSchliessen();
 });
 
+// ---------- Daten in der Karteikarte bearbeiten ----------
+const KK_FELDER = { unternehmen: 'kkfUnternehmen', objektname: 'kkfObjektname', strasse: 'kkfStrasse', plz: 'kkfPlz', ort: 'kkfOrt' };
+
+function bearbeitenZeigen(zeigen) {
+  const form = document.getElementById('kkForm');
+  form.hidden = !zeigen;
+  document.getElementById('kkBearbeiten').hidden = zeigen;
+  const o = objektNachId(offenesObjekt);
+  if (!zeigen || !o) return;
+  for (const [feld, id] of Object.entries(KK_FELDER)) document.getElementById(id).value = o[feld] || '';
+  document.getElementById('kkfStrasse').focus();
+}
+
+document.getElementById('kkBearbeiten').addEventListener('click', () => bearbeitenZeigen(true));
+document.getElementById('kkfAbbrechen').addEventListener('click', () => bearbeitenZeigen(false));
+
+document.getElementById('kkForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const o = objektNachId(offenesObjekt);
+  if (!o) return;
+  const neu = Object.fromEntries(Object.entries(KK_FELDER).map(([feld, id]) => [feld, document.getElementById(id).value.trim()]));
+  if (!/^\d{5}$/.test(neu.plz)) { alert('Die PLZ muss genau 5 Ziffern haben.'); return; }
+
+  const adresseGeaendert = schluessel(neu) !== schluessel(o);
+  if (adresseGeaendert) {
+    const andere = objekte.find(x => x.id !== o.id && schluessel(x) === schluessel(neu));
+    if (andere) { alert(`Diese Adresse gibt es schon in der Liste („${titel(andere)}“).`); return; }
+  }
+
+  Object.assign(o, neu);
+  if (adresseGeaendert) {
+    // Neue Adresse: Koordinaten neu suchen. Fotos, Notizen und Status bleiben.
+    Object.assign(o, { lat: null, lon: null, geoStatus: 'offen' });
+    // Liegt die Adresse in der Tagesroute, Straßenverlauf neu holen
+    if (route?.ids.includes(o.id)) { route.linie = null; routeSpeichern(); }
+  }
+  speichern([o.id]);
+  bearbeitenZeigen(false);
+  karteikarteZeichnen();
+  status(`✏️ „${titel(o)}“ gespeichert.`);
+  if (adresseGeaendert) koordinatenSuchen();  // zeichnet danach auch die Karteikarte neu
+});
+
 // Eine einzelne Adresse entfernen (Fotos bleiben im Google Drive). Gibt true zurück, wenn entfernt.
 function adresseEntfernen(id) {
   const o = objektNachId(id);
@@ -1661,17 +1726,34 @@ function normalisieren(o) {
 
 // Erst eigene Änderungen hochladen, dann den Stand aus Google holen.
 // Ist die Google-Tabelle noch leer, werden die Adressen aus diesem Browser hochgeladen.
+let synchronLaeuft = false;
+
 async function synchronisieren() {
+  synchronLaeuft = true;
   cloudStatus('laeuft');
   try {
     await hochladen();
     if (ausstehend.speichern.size || ausstehend.loeschen.size) throw new Error('Hochladen fehlgeschlagen.');
+    cloudStatus('laeuft');  // hochladen() meldet „ok“, das Laden läuft aber noch
+
+    // Stand vor dem Laden merken: Was währenddessen hier geändert wird (z. B. Excel-Import
+    // bei langsamem Google), darf das Ergebnis nicht überschreiben – es wird gleich hochgeladen.
+    const vorher = new Map(objekte.map(o => [o.id, JSON.stringify(o)]));
     const daten = await api('laden');
-    fotos = daten.fotos || [];
+    const jetzt = new Map(objekte.map(o => [o.id, o]));
+    const geaendert = new Map([...jetzt].filter(([id, o]) => vorher.get(id) !== JSON.stringify(o)));
+    const geloescht = new Set([...vorher.keys()].filter(id => !jetzt.has(id)));
+
+    const fotoIds = new Set((daten.fotos || []).map(f => f.id));
+    fotos = [...(daten.fotos || []), ...fotos.filter(f => !fotoIds.has(f.id))];
     if (daten.objekte.length) {
-      objekte = daten.objekte.map(normalisieren);
+      objekte = daten.objekte.map(normalisieren)
+        .filter(o => !geloescht.has(o.id))
+        .map(o => geaendert.get(o.id) || o);
+      const drin = new Set(objekte.map(o => o.id));
+      objekte.push(...[...geaendert.values()].filter(o => !drin.has(o.id)));
       merken(SPEICHER_KEY, objekte);
-      cloudStatus('ok');
+      cloudStatus(ausstehend.speichern.size || ausstehend.loeschen.size ? 'laeuft' : 'ok');
     } else if (objekte.length) {
       status(`☁️ Lade ${objekte.length} Adressen in die Google-Tabelle hoch …`);
       speichern();
@@ -1690,6 +1772,7 @@ async function synchronisieren() {
     status('⚠️ Google Drive: ' + e.message);
     return false;
   } finally {
+    synchronLaeuft = false;
     if (objekte.some(o => o.geoStatus === 'offen')) koordinatenSuchen();
   }
 }
