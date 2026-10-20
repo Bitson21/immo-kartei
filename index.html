@@ -74,6 +74,11 @@
     cursor: pointer;
   }
   ul.liste li:last-child { border-bottom: 0; }
+  .zeile-weg {
+    flex: none; border: 0; background: none; cursor: pointer;
+    font-size: 1.1rem; padding: 8px; border-radius: 8px; opacity: .6;
+  }
+  .zeile-weg:hover { background: #fde8e8; opacity: 1; }
   ul.liste li:hover { background: #f7f8fa; }
   .punkt { width: 14px; height: 14px; border-radius: 50%; flex: none; background: var(--offen); }
   .punkt.bearbeitet { background: var(--erledigt); }
@@ -345,7 +350,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-19.5';
+const APP_VERSION = '2026-10-20.1';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -553,13 +558,21 @@ function listeZeichnen() {
               ? 'Bitte in der Karteikarte entfernen und mit korrigierter Schreibweise neu eingeben.'
               : 'Bitte Schreibweise in der Excel prüfen.'}</span>` : ''}
           </span>
+          <button class="zeile-weg" data-weg-objekt="${o.id}" title="Adresse entfernen" aria-label="Adresse entfernen">🗑</button>
         </li>`).join('')}
     </ul>
     <div style="margin-top:14px"><button class="btn zweit" id="leeren">Liste leeren</button></div>`;
 
   document.getElementById('leeren').addEventListener('click', listeLeeren);
   inhalt.querySelectorAll('li[data-id]').forEach(li =>
-    li.addEventListener('click', () => karteikarteOeffnen(li.dataset.id)));
+    li.addEventListener('click', e => {
+      // 🗑 in der Zeile entfernt die Adresse, sonst öffnet ein Tipp die Karteikarte
+      if (e.target.closest('[data-weg-objekt]')) {
+        if (adresseEntfernen(li.dataset.id)) allesZeichnen(false);
+        return;
+      }
+      karteikarteOeffnen(li.dataset.id);
+    }));
 }
 
 // Kleine Zeile „📷 3 · 📝 Notiz“ in der Liste
@@ -886,12 +899,17 @@ function fahrzeitText(minuten) {
   return m < 60 ? `${m} Min.` : `${Math.floor(m / 60)} Std. ${m % 60} Min.`;
 }
 
-// Google-Maps-Link: ohne „origin“ startet Google Maps am aktuellen Standort
-function mapsLink(ziele) {
+// Google-Maps-Link. Ohne „start“ beginnt Google Maps am aktuellen Standort (dann mit Sprachnavigation);
+// mit „start“ zeigt Google Maps bei einem anderen Ort oft nur eine Vorschau der Route.
+function mapsLink(ziele, start) {
   const params = new URLSearchParams({ api: '1', destination: ziele[ziele.length - 1], travelmode: 'driving' });
+  if (start) params.set('origin', start);
   if (ziele.length > 1) params.set('waypoints', ziele.slice(0, -1).join('|'));
   return 'https://www.google.com/maps/dir/?' + params;
 }
+
+// Häkchen „Google Maps ab Startpunkt starten“ (gemerkt, Standard: an)
+let abStartpunkt = lesen('immoKartei.abStartpunkt', true);
 
 let standortPos = null;  // gesetzt über „Mein Standort“, gelöscht sobald man selbst tippt
 
@@ -988,17 +1006,29 @@ function routeZeichnen() {
       ? `ca. ${Math.round(route.km)} km · ca. ${fahrzeitText(route.minuten)} Fahrzeit`
       : `ca. ${Math.round(route.km)} km Luftlinie`}</h2>
     <div style="color:var(--muted);font-size:.9rem">Start: ${esc(route.start.text)}${fertig ? ` · ✅ ${fertig} erledigt` : ''}</div>
+    <label class="haken" style="margin:12px 0 0">
+      <input type="checkbox" id="abStartpunkt" ${abStartpunkt ? 'checked' : ''}>
+      Google Maps ab Startpunkt starten
+    </label>
+    <div class="gedimmt" style="margin:2px 0 0 28px">${abStartpunkt
+      ? 'Etappe 1 beginnt am Startpunkt, jede weitere beim letzten Stopp davor. Google zeigt dann evtl. nur eine Vorschau: zum Losfahren Häkchen entfernen.'
+      : 'Google Maps startet an deinem aktuellen Standort, mit Sprachnavigation.'}</div>
     ${etappen.map((etappe, k) => {
       // Bereits bearbeitete Stopps werden nicht mehr angefahren
       const ziele = etappe
         .filter(e => e.start || e.o.status !== 'bearbeitet')
         .map(e => e.start ? route.start.ziel : adresseText(e.o));
+      // Start der Etappe: Startpunkt bzw. letzter Stopp der vorigen Etappe
+      const vorige = etappen[k - 1];
+      const etappenStart = !abStartpunkt ? null
+        : k === 0 ? route.start.ziel
+        : adresseText(vorige[vorige.length - 1].o);
       const nummern = etappe.filter(e => !e.start).map(e => e.nr);
       const bereichText = nummern.length ? `Stopp ${nummern[0]}${nummern.length > 1 ? '–' + nummern[nummern.length - 1] : ''}` : 'Rückfahrt';
       return `
         <div class="etappe">
           <h3><span>Etappe ${k + 1} · ${bereichText}</span>
-            ${ziele.length ? `<a class="btn" href="${esc(mapsLink(ziele))}" target="_blank" rel="noopener">In Google Maps öffnen</a>` : '<span>✅ erledigt</span>'}
+            ${ziele.length ? `<a class="btn" href="${esc(mapsLink(ziele, etappenStart))}" target="_blank" rel="noopener">In Google Maps öffnen</a>` : '<span>✅ erledigt</span>'}
           </h3>
           <ol class="stopps">
             ${etappe.map(e => e.start ? `
@@ -1012,6 +1042,11 @@ function routeZeichnen() {
 
   bereich.querySelectorAll('li[data-id]').forEach(li =>
     li.addEventListener('click', () => karteikarteOeffnen(li.dataset.id)));
+  document.getElementById('abStartpunkt').addEventListener('change', e => {
+    abStartpunkt = e.target.checked;
+    merken('immoKartei.abStartpunkt', abStartpunkt);
+    routeZeichnen();
+  });
 }
 
 function routeVerwerfen() {
@@ -1455,20 +1490,25 @@ window.addEventListener('popstate', () => {
   if (!history.state?.karteikarte && !document.getElementById('karteikarte').hidden) karteikarteSchliessen();
 });
 
-// Eine einzelne Adresse entfernen (Fotos bleiben im Google Drive)
-document.getElementById('kkEntfernen').addEventListener('click', () => {
-  const o = objektNachId(offenesObjekt);
-  if (!o) return;
+// Eine einzelne Adresse entfernen (Fotos bleiben im Google Drive). Gibt true zurück, wenn entfernt.
+function adresseEntfernen(id) {
+  const o = objektNachId(id);
+  if (!o) return false;
   const anzahlFotos = fotosVon(o.id).length;
   const frage = `Adresse „${titel(o)}“ aus der Liste entfernen?` +
     (anzahlFotos ? `\n\nIhre ${anzahlFotos} Foto(s) bleiben im Google Drive erhalten.` : '') +
     (istManuell(o) ? '' : '\n\nBeim nächsten Laden der Excel-Datei kommt sie wieder.');
-  if (!confirm(frage)) return;
-  clearTimeout(notizTimer);
+  if (!confirm(frage)) return false;
   loeschenVormerken([o.id]);
   objekte = objekte.filter(x => x.id !== o.id);
   speichern([]);
   status(`🗑 „${titel(o)}“ entfernt.`);
+  return true;
+}
+
+document.getElementById('kkEntfernen').addEventListener('click', () => {
+  clearTimeout(notizTimer);
+  if (!adresseEntfernen(offenesObjekt)) return;
   if (history.state?.karteikarte) history.back();  // schließt die Karteikarte
   else karteikarteSchliessen();
 });

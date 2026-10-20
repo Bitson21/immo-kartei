@@ -37,7 +37,7 @@ Rot markierte Adressen wurden nicht gefunden. Dann die Schreibweise in der Excel
 
 Von Hand eingegebene Adressen bleiben erhalten, wenn später eine Excel-Datei geladen wird.
 
-Jede Adresse lässt sich in ihrer Karteikarte unten über **🗑 Adresse entfernen** löschen. Fotos bleiben im Google Drive. Eine Excel-Adresse kommt beim nächsten Laden der Excel wieder.
+Jede Adresse lässt sich über das **🗑** rechts in ihrer Zeile der Adressliste oder in ihrer Karteikarte unten über **🗑 Adresse entfernen** löschen (mit Sicherheitsabfrage). Fotos bleiben im Google Drive. Eine Excel-Adresse kommt beim nächsten Laden der Excel wieder.
 
 Mit **Liste leeren** (unter der Adressliste) werden alle Adressen gelöscht, mit Sicherheitsabfrage. Bei Verbindung zu Google Drive auch in der Tabelle, Fotos bleiben erhalten. Wird dieselbe Excel danach erneut geladen, gehören die Fotos wieder zur richtigen Adresse.
 
@@ -52,7 +52,7 @@ Die App sucht die Reihenfolge mit der kürzesten **Fahrzeit mit dem Auto** über
 
 Auf der Karte ist die Route als Linie entlang der Straßen eingezeichnet (gestrichelte gerade Linien nur, wenn der Routendienst nicht erreichbar ist).
 
-Die Route wird in Etappen zu je 10 Adressen aufgeteilt. **In Google Maps öffnen** startet die Navigation ab dem aktuellen Standort. Dafür muss die **Google-Maps-App** auf dem iPhone installiert sein (im Safari-Browser erlaubt Google nur 3 Zwischenstopps). Bereits bearbeitete Adressen werden in den Etappen übersprungen.
+Die Route wird in Etappen zu je 10 Adressen aufgeteilt. **In Google Maps öffnen** öffnet die Etappe in Google Maps. Mit Häkchen **Google Maps ab Startpunkt starten** beginnt Etappe 1 am Startpunkt aus der App und jede weitere beim letzten Stopp davor (Google zeigt dann oft nur eine Vorschau). Ohne Häkchen startet Google Maps am aktuellen Standort, mit Sprachnavigation. Dafür muss die **Google-Maps-App** auf dem iPhone installiert sein (im Safari-Browser erlaubt Google nur 3 Zwischenstopps). Bereits bearbeitete Adressen werden in den Etappen übersprungen.
 
 ### Karte oder Satellit
 
