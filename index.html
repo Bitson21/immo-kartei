@@ -368,7 +368,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-20.2';
+const APP_VERSION = '2026-10-20.3';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -377,8 +377,6 @@ const START_ANSICHT = { lat: 51.16, lon: 10.45, zoom: 6 };  // Deutschland
 const ROUTE_KEY = 'immoKartei.route';
 // Google-Maps-App erlaubt 9 Zwischenstopps + Ziel pro Link (Safari ohne App nur 3)
 const ETAPPE_STOPPS = 10;
-// Auswahl „Stopps heute“ im Dropdown: 1 bis STOPPS_MAX
-const STOPPS_MAX = 45;
 // Fahrzeiten kommen vom kostenlosen OSRM-Server (OpenStreetMap-Straßendaten), max. 100 Punkte pro Anfrage
 const OSRM_URL = 'https://router.project-osrm.org/table/v1/driving/';
 const OSRM_MAX_PUNKTE = 100;
@@ -604,7 +602,22 @@ function allesZeichnen(zoomen) {
   karteZeichnen(zoomen);
   routeZeichnen();
   listeZeichnen();
+  anzahlAuswahlAktualisieren();
   document.getElementById('routePanel').hidden = !objekte.some(o => o.geoStatus === 'ok');
+}
+
+// Dropdown „Stopps heute“: 1 bis Anzahl aller Adressen. Die Auswahl bleibt, solange sie noch passt.
+function anzahlAuswahlAktualisieren() {
+  const auswahl = document.getElementById('anzahl');
+  const max = objekte.length;
+  if (auswahl.options.length - 1 === max) return;  // unverändert
+  const gewaehlt = +auswahl.value;
+  auswahl.innerHTML = '<option value="" disabled>Bitte wählen …</option>' +
+    Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+  auswahl.value = gewaehlt && gewaehlt <= max ? String(gewaehlt) : '';
+  document.getElementById('anzahlHinweis').textContent =
+    `Max. ${max} (alle Adressen). Ein Google-Maps-Link fasst bis zu ${ETAPPE_STOPPS} Stopps, ` +
+    `bei mehr teilt die App die Route automatisch in Etappen (z. B. 17 Stopps = 2 Etappen).`;
 }
 
 function status(text) {
@@ -825,9 +838,41 @@ function km(a, b) {
   return 12742 * Math.asin(Math.sqrt(h));
 }
 
-// Fahrzeiten (Sekunden) und Strecken (Meter) zwischen allen Punkten, als Tabelle [von][nach]
-async function fahrMatrix(punkte) {
-  if (punkte.length > OSRM_MAX_PUNKTE) throw new Error('Zu viele Punkte für den Routendienst');
+// Fahrzeiten (Sekunden) und Strecken (Meter) zwischen allen Punkten, als Tabelle [von][nach].
+// Der Routendienst nimmt max. OSRM_MAX_PUNKTE Punkte pro Anfrage. Bei mehr Punkten werden sie
+// in Gruppen zu je der Hälfte geteilt und jedes Gruppenpaar einzeln abgefragt (so kommt jede
+// Verbindung in mindestens einer Anfrage vor). „fortschritt(k, n)“ meldet den Stand.
+async function fahrMatrix(punkte, fortschritt = () => {}) {
+  const n = punkte.length;
+  const alle = [...Array(n).keys()];
+  let anfragen = [alle];
+  if (n > OSRM_MAX_PUNKTE) {
+    const groesse = Math.floor(OSRM_MAX_PUNKTE / 2);
+    const gruppen = [];
+    for (let i = 0; i < n; i += groesse) gruppen.push(alle.slice(i, i + groesse));
+    anfragen = [];
+    for (let a = 0; a < gruppen.length; a++) {
+      for (let b = a + 1; b < gruppen.length; b++) anfragen.push([...gruppen[a], ...gruppen[b]]);
+    }
+  }
+
+  const leer = () => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => i === j ? 0 : 1e9));
+  const dauer = leer(), meter = leer();
+  for (let k = 0; k < anfragen.length; k++) {
+    fortschritt(k + 1, anfragen.length);
+    if (k > 0) await pause(1100);  // kostenlosen Dienst nicht überlasten
+    const indizes = anfragen[k];
+    const teil = await osrmTabelle(indizes.map(i => punkte[i]));
+    indizes.forEach((gi, a) => indizes.forEach((gj, b) => {
+      dauer[gi][gj] = teil.dauer[a][b];
+      meter[gi][gj] = teil.meter[a][b];
+    }));
+  }
+  return { dauer, meter };
+}
+
+// Eine einzelne Anfrage an den Table-Service (max. OSRM_MAX_PUNKTE Punkte)
+async function osrmTabelle(punkte) {
   const koordinaten = punkte.map(p => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
   const antwort = await fetch(OSRM_URL + koordinaten + '?annotations=duration,distance');
   if (!antwort.ok) throw new Error('HTTP ' + antwort.status);
@@ -844,8 +889,19 @@ function routePfad() {
   return [[s.lat, s.lon], ...routeObjekte().map(o => [o.lat, o.lon]), ...(route.rund ? [[s.lat, s.lon]] : [])];
 }
 
-// Genauer Straßenverlauf durch alle Punkte als [lat, lon]-Liste
+// Genauer Straßenverlauf durch alle Punkte als [lat, lon]-Liste.
+// Lange Routen in Stücken zu max. OSRM_MAX_PUNKTE Punkten (Stücke überlappen um einen Punkt).
 async function strassenverlauf(pfad) {
+  const linie = [];
+  for (let i = 0; i < pfad.length - 1; i += OSRM_MAX_PUNKTE - 1) {
+    if (i > 0) await pause(1100);
+    const teil = await osrmRoute(pfad.slice(i, i + OSRM_MAX_PUNKTE));
+    linie.push(...(linie.length ? teil.slice(1) : teil));
+  }
+  return linie;
+}
+
+async function osrmRoute(pfad) {
   const koordinaten = pfad.map(([lat, lon]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join(';');
   const antwort = await fetch(OSRM_ROUTE_URL + koordinaten + '?overview=full&geometries=geojson');
   if (!antwort.ok) throw new Error('HTTP ' + antwort.status);
@@ -969,7 +1025,11 @@ async function routeBerechnen() {
     const punkte = [start, ...offen];
     const index = new Map(punkte.map((p, i) => [p, i]));
     let matrix = null;
-    try { matrix = await fahrMatrix(punkte); }
+    try {
+      matrix = await fahrMatrix(punkte, (k, n) => {
+        if (n > 1) status(`🚗 Berechne Fahrzeiten … Teil ${k} von ${n}`);
+      });
+    }
     catch (e) { console.warn('Fahrzeiten nicht verfügbar, nutze Luftlinie', e); }
     // Hin- und Rückweg können verschieden lang sein (Einbahnstraßen); für die Optimierung zählt der Mittelwert
     const dist = matrix
@@ -1869,12 +1929,6 @@ document.addEventListener('visibilitychange', () => {
 setInterval(aufUpdatePruefen, 30 * 60 * 1000);
 
 // ---------- Start ----------
-// Dropdown „Stopps heute“ füllen und erklären, wie die Route auf Google-Maps-Links verteilt wird
-document.getElementById('anzahl').insertAdjacentHTML('beforeend',
-  Array.from({ length: STOPPS_MAX }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join(''));
-document.getElementById('anzahlHinweis').textContent =
-  `Max. ${STOPPS_MAX}. Ein Google-Maps-Link fasst bis zu ${ETAPPE_STOPPS} Stopps, ` +
-  `bei mehr teilt die App die Route automatisch in Etappen (z. B. 17 Stopps = 2 Etappen).`;
 if (route) {
   document.getElementById('startText').value = route.start.text === 'Mein Standort' ? '' : route.start.text;
   document.getElementById('rund').checked = route.rund;
