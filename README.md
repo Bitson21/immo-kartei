@@ -82,6 +82,13 @@ Eine Immobilie in der Liste, in der Tagesroute oder im Karten-Popup (**Karteikar
 
 Fotos gehen nur über die Kamera in der App, nicht aus der Galerie: Das iPhone entfernt bei Galeriefotos oft den Aufnahmeort.
 
+**Originale in der Fotomediathek sichern:** In Google Drive landen verkleinerte Fotos. Die Originale in voller Größe sammelt die App. Unten erscheint dann **📸 … Originale noch nicht in Fotos gesichert**:
+
+1. Auf **In Fotos sichern** tippen (geht auch für mehrere Fotos auf einmal, z. B. am Ende einer Besichtigung).
+2. Im Teilen-Menü des iPhones **Bilder sichern** (bzw. „… Bilder sichern“) antippen.
+
+Die Originale enthalten Aufnahmezeit und GPS-Standort, sodass sie in der Fotos-App auf der Karte erscheinen. Apple erlaubt Web-Apps nicht, ohne diesen Tipp in die Fotomediathek zu speichern. Die Originale liegen bis dahin nur im Arbeitsspeicher der App. Vor dem Schließen warnt die App, solange noch Originale offen sind. **✕** verwirft sie (mit Rückfrage).
+
 **Standort:** Beim Öffnen der Karteikarte startet die Ortung, über dem Foto-Knopf steht der Stand: **📍 Standort aktiv · ±8 m** (alles gut), **⏳ Standort wird ermittelt …** oder eine Warnung mit Grund. Steht dort „Standort nicht erlaubt“:
 
 1. iPhone **Einstellungen** → **Datenschutz & Sicherheit** → **Ortungsdienste**.
