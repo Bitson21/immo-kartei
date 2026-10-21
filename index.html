@@ -16,6 +16,8 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Schreibt GPS-Standort und Aufnahmezeit in die Originalfotos (EXIF) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/piexifjs/1.0.6/piexif.min.js"></script>
 <style>
   :root {
     --bg: #f4f5f7;
@@ -189,17 +191,27 @@
   .vb-pfeil.links { left: 10px; }
   .vb-pfeil.rechts { right: 10px; }
 
-  /* Hinweis auf neue Version */
-  #updateHinweis {
+  /* Hinweisleisten unten (neue Version, Originale sichern) – liegen auch über der Karteikarte */
+  #hinweise {
     position: fixed; left: 12px; right: 12px; z-index: 5000;
     bottom: max(12px, env(safe-area-inset-bottom));
     max-width: 520px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .leiste {
     background: #1d2330; color: #fff; border-radius: 12px;
     box-shadow: 0 4px 16px rgba(0,0,0,.3);
-    padding: 12px 14px; display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; display: flex; align-items: center; gap: 10px;
   }
-  #updateHinweis[hidden] { display: none; }
-  #updateHinweis span { flex: 1; }
+  .leiste[hidden] { display: none; }
+  .leiste span { flex: 1; }
+  /* Originale: Text oben über die ganze Breite, darunter Knopf und ✕ */
+  #originalHinweis { flex-wrap: wrap; }
+  #originalHinweis span { flex: 1 1 100%; }
+  #originalHinweis .btn { flex: 1; }
+  .leiste .zu { background: none; border: 0; color: #fff; opacity: .7; font-size: 1.1rem; cursor: pointer; padding: 4px; }
+  /* Platz unten frei halten, solange eine Leiste sichtbar ist */
+  body.mit-leiste main, body.mit-leiste .kk-inhalt { padding-bottom: 150px; }
 
   /* Schmale Handys: Kopfzeile in einer Zeile halten */
   @media (max-width: 420px) {
@@ -344,9 +356,16 @@
   </div>
 </div>
 
-<div id="updateHinweis" hidden>
-  <span>🔄 Neue Version verfügbar</span>
-  <button class="btn" id="updateBtn">Aktualisieren</button>
+<div id="hinweise">
+  <div class="leiste" id="originalHinweis" hidden>
+    <span id="originalText"></span>
+    <button class="btn" id="originalBtn">In Fotos sichern</button>
+    <button class="zu" id="originalVerwerfen" title="Originale nicht sichern" aria-label="Originale nicht sichern">✕</button>
+  </div>
+  <div class="leiste" id="updateHinweis" hidden>
+    <span>🔄 Neue Version verfügbar</span>
+    <button class="btn" id="updateBtn">Aktualisieren</button>
+  </div>
 </div>
 
 <div id="vollbild" hidden>
@@ -368,7 +387,7 @@
 // ---------- Einstellungen ----------
 // Bei JEDER Änderung an dieser Datei hochsetzen (Datum + laufende Nummer),
 // sonst merkt die App auf dem iPhone-Home-Bildschirm nicht, dass es eine neue Version gibt.
-const APP_VERSION = '2026-10-20.3';
+const APP_VERSION = '2026-10-21.1';
 const SPEICHER_KEY = 'immoKartei.objekte';   // Zwischenspeicher im Browser (Hauptspeicher ist die Google-Tabelle)
 const VERBINDUNG_KEY = 'immoKartei.verbindung';  // { url, code } des Google-Skripts
 const AUSSTEHEND_KEY = 'immoKartei.ausstehend';  // noch nicht hochgeladene Änderungen
@@ -1514,6 +1533,7 @@ async function fotoAufgenommen(datei) {
   uploadSchlange.push({
     tmpId: 'u' + Date.now(), objektId, blob, vorschau: URL.createObjectURL(blob), standort, aufgenommenAm, fehler: null,
   });
+  originalMerken(datei, objektId, standort, aufgenommenAm);
   if (offenesObjekt) karteikarteZeichnen();
   uploadsAbarbeiten();
 }
@@ -1684,9 +1704,111 @@ document.getElementById('kkFotos').addEventListener('click', async e => {
   }
 });
 
-// Warnung beim Schließen, solange Fotos noch nicht hochgeladen sind
+// ---------- Originale in der Fotomediathek sichern ----------
+// Hochgeladen werden nur verkleinerte Fotos. Die Originale sammelt die App und sichert sie über das
+// Teilen-Menü („Bilder sichern“). Apple erlaubt Web-Apps nicht, ohne Tipp in die Fotomediathek zu
+// speichern. GPS-Standort und Aufnahmezeit werden vorher in die Originale geschrieben (EXIF).
+const originale = [];  // { datei: File, fertig: bool }
+
+// Nur wo das Gerät Dateien teilen kann (iPhone); am Computer liegen die Originale ohnehin schon vor
+const kannOriginaleSichern = () => {
+  try { return !!navigator.canShare?.({ files: [new File([''], 'test.jpg', { type: 'image/jpeg' })] }); }
+  catch { return false; }
+};
+
+function leistenPruefen() {
+  document.body.classList.toggle('mit-leiste', [...document.querySelectorAll('#hinweise .leiste')].some(l => !l.hidden));
+}
+
+function originalMerken(datei, objektId, standort, aufgenommenAm) {
+  if (!kannOriginaleSichern()) return;
+  const eintrag = { datei, fertig: false };
+  originale.push(eintrag);
+  originalHinweisZeigen();
+  // Erst wenn der Standort feststeht, die Datei fertig machen – beim Tippen auf „In Fotos sichern“
+  // muss das Teilen-Menü sofort aufgehen, sonst blockiert das iPhone es.
+  standort
+    .then(pos => originalVorbereiten(datei, objektId, pos, aufgenommenAm))
+    .catch(e => { console.warn('GPS/Zeit konnten nicht ins Original geschrieben werden', e); return datei; })
+    .then(fertig => { eintrag.datei = fertig; eintrag.fertig = true; originalHinweisZeigen(); });
+}
+
+const dateiAlsDataUrl = datei => new Promise((ok, fehler) => {
+  const leser = new FileReader();
+  leser.onload = () => ok(leser.result);
+  leser.onerror = () => fehler(leser.error);
+  leser.readAsDataURL(datei);
+});
+
+// Original mit Dateinamen, Aufnahmezeit und (falls bekannt) GPS-Standort versehen
+async function originalVorbereiten(datei, objektId, pos, aufgenommenAm) {
+  const zeit = new Date(aufgenommenAm);
+  const z2 = n => String(n).padStart(2, '0');
+  const datum = [zeit.getFullYear(), z2(zeit.getMonth() + 1), z2(zeit.getDate())];
+  const uhr = [z2(zeit.getHours()), z2(zeit.getMinutes()), z2(zeit.getSeconds())];
+  const o = objektNachId(objektId);
+  const name = `Immo-Kartei_${(o ? titel(o) : 'Foto').replace(/[^\wäöüÄÖÜß]+/g, '-').slice(0, 40)}_${datum.join('-')}_${uhr.join('-')}.jpg`;
+  const alsDatei = inhalt => new File([inhalt], name, { type: 'image/jpeg', lastModified: zeit.getTime() });
+  if (datei.type !== 'image/jpeg' || typeof piexif === 'undefined') return alsDatei(datei);
+
+  const dataUrl = await dateiAlsDataUrl(datei);
+  let vorhanden = {};
+  try { vorhanden = piexif.load(dataUrl); } catch { /* Foto ohne EXIF */ }
+  const exifZeit = `${datum.join(':')} ${uhr.join(':')}`;
+  const gps = {};
+  if (pos) {
+    gps[piexif.GPSIFD.GPSLatitudeRef] = pos.lat >= 0 ? 'N' : 'S';
+    gps[piexif.GPSIFD.GPSLatitude] = piexif.GPSHelper.degToDmsRational(Math.abs(pos.lat));
+    gps[piexif.GPSIFD.GPSLongitudeRef] = pos.lon >= 0 ? 'E' : 'W';
+    gps[piexif.GPSIFD.GPSLongitude] = piexif.GPSHelper.degToDmsRational(Math.abs(pos.lon));
+  }
+  const zeitFelder = { [piexif.ExifIFD.DateTimeOriginal]: exifZeit, [piexif.ExifIFD.DateTimeDigitized]: exifZeit };
+  // Erst mit allen vorhandenen Angaben versuchen; klappt das nicht (unbekannte Hersteller-Daten),
+  // nur Ausrichtung, Zeit und GPS schreiben.
+  const voll = { '0th': vorhanden['0th'] || {}, Exif: { ...(vorhanden.Exif || {}), ...zeitFelder }, GPS: gps };
+  const ausrichtung = vorhanden['0th']?.[piexif.ImageIFD.Orientation];
+  const knapp = { '0th': ausrichtung ? { [piexif.ImageIFD.Orientation]: ausrichtung } : {}, Exif: zeitFelder, GPS: gps };
+  let bytes;
+  try { bytes = piexif.dump(voll); } catch { bytes = piexif.dump(knapp); }
+  return alsDatei(await (await fetch(piexif.insert(bytes, dataUrl))).blob());
+}
+
+function originalHinweisZeigen() {
+  const n = originale.length;
+  document.getElementById('originalHinweis').hidden = !n;
+  if (n) {
+    const bereit = originale.filter(o => o.fertig).length;
+    document.getElementById('originalText').textContent = `📸 ${n} ${n === 1 ? 'Original' : 'Originale'} noch nicht in Fotos gesichert`;
+    const knopf = document.getElementById('originalBtn');
+    knopf.disabled = !bereit;
+    knopf.textContent = bereit < n ? `In Fotos sichern (${bereit} von ${n} bereit)` : 'In Fotos sichern';
+  }
+  leistenPruefen();
+}
+
+document.getElementById('originalBtn').addEventListener('click', () => {
+  // Ohne Wartezeit teilen: Das iPhone öffnet das Teilen-Menü nur direkt nach einem Tipp
+  const bereit = originale.filter(o => o.fertig);
+  const dateien = bereit.map(o => o.datei);
+  if (!dateien.length) return;
+  navigator.share({ files: dateien })
+    .then(() => {
+      bereit.forEach(o => originale.splice(originale.indexOf(o), 1));
+      originalHinweisZeigen();
+      status(`📸 ${dateien.length} ${dateien.length === 1 ? 'Original' : 'Originale'} zum Sichern übergeben.`);
+    })
+    .catch(e => { if (e.name !== 'AbortError') alert('Teilen fehlgeschlagen: ' + e.message); });
+});
+
+document.getElementById('originalVerwerfen').addEventListener('click', () => {
+  if (!confirm('Originale nicht in Fotos sichern?\n\nDie verkleinerten Fotos bleiben in Google Drive. Die Originale in voller Größe gehen verloren.')) return;
+  originale.length = 0;
+  originalHinweisZeigen();
+});
+
+// Warnung beim Schließen, solange Fotos noch nicht hochgeladen oder Originale nicht gesichert sind
 window.addEventListener('beforeunload', e => {
-  if (uploadSchlange.length) { e.preventDefault(); e.returnValue = ''; }
+  if (uploadSchlange.length || originale.length) { e.preventDefault(); e.returnValue = ''; }
 });
 
 // „Karteikarte öffnen“-Knopf in den Karten-Popups.
@@ -1908,6 +2030,7 @@ async function aufUpdatePruefen() {
     if (gefunden && gefunden !== APP_VERSION) {
       neueVersion = gefunden;
       document.getElementById('updateHinweis').hidden = false;
+      leistenPruefen();
     }
   } catch { /* offline: beim nächsten Mal */ }
 }
